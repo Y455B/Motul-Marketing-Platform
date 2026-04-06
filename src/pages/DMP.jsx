@@ -26,13 +26,16 @@ export default function DMP({ user }) {
 
   const load = async () => {
     setLoading(true)
-    const { data, error } = await supabase.from('dmp_requests').select('*').order('created_at', { ascending: false })
+    let query = supabase.from('dmp_requests').select('*').order('created_at', { ascending: false })
+    // User voit uniquement ses propres demandes
+    if (!admin) query = query.eq('user_id', user?.id)
+    const { data, error } = await query
     if (error) showToast(error.message, 'error')
     else setItems(data || [])
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { if (user) load() }, [user, admin])
 
   const filtered = items.filter(d => {
     if (filter !== 'all' && d.status !== filter) return false
@@ -41,7 +44,7 @@ export default function DMP({ user }) {
   })
 
   const totalBudget = items.reduce((s, d) => s + (Number(d.budget) || 0), 0)
-  const generateId = () => `DMP-${new Date().getFullYear()}-${String(items.length + 1).padStart(3, '0')}`
+  const generateId = () => `DMP-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`
 
   const validate = async (id) => {
     const { error } = await supabase.from('dmp_requests').update({ status: 'approved' }).eq('id', id)
@@ -65,13 +68,19 @@ export default function DMP({ user }) {
   const submitNew = async (e) => {
     e.preventDefault()
     setSubmitting(true)
-    const { error } = await supabase.from('dmp_requests').insert({ id: generateId(), ...form, budget: Number(form.budget), status: 'pending' })
+    const { error } = await supabase.from('dmp_requests').insert({
+      id: generateId(),
+      ...form,
+      budget: Number(form.budget),
+      status: 'pending',
+      user_id: user?.id
+    })
     if (error) showToast(error.message, 'error')
     else { setSubmitted(true); load() }
     setSubmitting(false)
   }
 
-  // Vue formulaire (partenaire ou admin)
+  // Vue formulaire
   if (view === 'new') return (
     <Layout user={user}>
       <div className="page-header">
@@ -119,11 +128,11 @@ export default function DMP({ user }) {
       <div className="page-header">
         <div>
           <div className="page-title">Actions Marketing</div>
-          <div className="page-sub">{admin ? 'Back-office DMP · Toutes les demandes' : 'Vos demandes marketing Motul Africa'}</div>
+          <div className="page-sub">{admin ? 'Back-office DMP · Toutes les demandes partenaires' : 'Vos demandes marketing Motul Africa'}</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-primary" onClick={() => { setView('new'); setSubmitted(false); setForm(EMPTY_FORM) }}>+ Nouvelle demande</button>
-          {admin && <button className="btn" onClick={() => showToast('Export CSV en préparation...')}>Export CSV</button>}
+          {admin && <button className="btn" onClick={() => showToast('Export en préparation...')}>Export CSV</button>}
         </div>
       </div>
 
@@ -148,32 +157,37 @@ export default function DMP({ user }) {
       )}
 
       <div className="table-card" style={{ position: 'relative' }}>
-        <div className="table-head" style={{ gridTemplateColumns: admin ? '2fr 100px 100px 110px 90px 80px' : '2fr 100px 110px 90px' }}>
+        <div className="table-head" style={{ gridTemplateColumns: admin ? '2fr 100px 110px 110px 90px 80px' : '2fr 110px 110px 90px' }}>
           {admin
             ? ['Action / Entreprise', 'Catégorie', 'Budget', 'Date lancement', 'Statut', 'Actions'].map(h => <span key={h} className="th">{h}</span>)
-            : ['Action', 'Catégorie', 'Date lancement', 'Statut'].map(h => <span key={h} className="th">{h}</span>)
+            : ['Action', 'Date lancement', 'Date soumission', 'Statut'].map(h => <span key={h} className="th">{h}</span>)
           }
         </div>
+
         {loading ? <div className="empty-state">Chargement...</div>
-          : filtered.length === 0 ? <div className="empty-state"><div className="empty-state-icon">◈</div>Aucune demande trouvée.</div>
-          : filtered.map(d => (
-            <div key={d.id} className="table-row" style={{ gridTemplateColumns: admin ? '2fr 100px 100px 110px 90px 80px' : '2fr 100px 110px 90px', cursor: admin ? 'pointer' : 'default' }} onClick={() => admin && setSelected(d)}>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#111827' }}>{d.title}</div>
-                <div style={{ fontSize: 11, color: '#9ca3af' }}>{d.company} · {d.id}</div>
-              </div>
-              <span className="td">{d.category}</span>
-              {admin && <span className="td" style={{ fontFamily: 'monospace' }}>{Number(d.budget).toLocaleString()} MAD</span>}
-              <span className="td" style={{ fontFamily: 'monospace', fontSize: 11 }}>{d.launch_date}</span>
-              <span className={`badge ${STATUS_CLASS[d.status] || 'badge-arch'}`}>{STATUS_LABELS[d.status] || d.status}</span>
-              {admin && (
-                <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
-                  <button className="btn btn-success" style={{ width: 26, height: 26, padding: 0, fontSize: 12 }} onClick={() => validate(d.id)}>✓</button>
-                  <button className="btn btn-danger" style={{ width: 26, height: 26, padding: 0, fontSize: 12 }} onClick={() => setDeleteTarget(d)}>✕</button>
+          : filtered.length === 0
+            ? <div className="empty-state"><div className="empty-state-icon">◈</div>{admin ? 'Aucune demande trouvée.' : 'Vous n\'avez pas encore soumis de demande.'}</div>
+            : filtered.map(d => (
+              <div key={d.id} className="table-row"
+                style={{ gridTemplateColumns: admin ? '2fr 100px 110px 110px 90px 80px' : '2fr 110px 110px 90px', cursor: admin ? 'pointer' : 'default' }}
+                onClick={() => admin && setSelected(d)}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#111827' }}>{d.title}</div>
+                  <div style={{ fontSize: 11, color: '#9ca3af' }}>{d.company} · {d.id}</div>
                 </div>
-              )}
-            </div>
-          ))
+                {admin && <span className="td">{d.category}</span>}
+                {admin && <span className="td" style={{ fontFamily: 'monospace' }}>{Number(d.budget).toLocaleString()} MAD</span>}
+                <span className="td" style={{ fontFamily: 'monospace', fontSize: 11 }}>{d.launch_date}</span>
+                {!admin && <span className="td" style={{ fontFamily: 'monospace', fontSize: 11 }}>{new Date(d.created_at).toLocaleDateString('fr-FR')}</span>}
+                <span className={`badge ${STATUS_CLASS[d.status] || 'badge-arch'}`}>{STATUS_LABELS[d.status] || d.status}</span>
+                {admin && (
+                  <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
+                    <button className="btn btn-success" style={{ width: 26, height: 26, padding: 0, fontSize: 12 }} onClick={() => validate(d.id)} title="Valider">✓</button>
+                    <button className="btn btn-danger" style={{ width: 26, height: 26, padding: 0, fontSize: 12 }} onClick={() => setDeleteTarget(d)} title="Supprimer">✕</button>
+                  </div>
+                )}
+              </div>
+            ))
         }
 
         {/* Panel détail admin */}
@@ -182,7 +196,7 @@ export default function DMP({ user }) {
             <div style={{ width: 400, background: '#fff', borderRadius: '0 12px 12px 0', height: '100%', overflow: 'auto', padding: 24 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                 <div style={{ fontSize: 15, fontWeight: 600 }}>{selected.title}</div>
-                <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af', lineHeight: 1 }}>✕</button>
+                <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af' }}>✕</button>
               </div>
               <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 18 }}>{selected.id}</div>
               {[['Entreprise', selected.company], ['Demandeur', selected.demandeur], ['Catégorie', selected.category], ['Date de lancement', selected.launch_date], ['Budget', `${Number(selected.budget).toLocaleString()} MAD`]].map(([k, v]) => (
@@ -191,7 +205,12 @@ export default function DMP({ user }) {
                   <div style={{ fontSize: 13, fontWeight: k === 'Budget' ? 600 : 400 }}>{v}</div>
                 </div>
               ))}
-              {selected.comment && <div style={{ marginBottom: 12 }}><div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 3 }}>COMMENTAIRE</div><div style={{ fontSize: 13 }}>{selected.comment}</div></div>}
+              {selected.comment && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 3 }}>COMMENTAIRE</div>
+                  <div style={{ fontSize: 13 }}>{selected.comment}</div>
+                </div>
+              )}
               {selected.status === 'rejected' && selected.motif && (
                 <div style={{ background: '#FFF0ED', borderLeft: '3px solid #CC2200', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>
                   <div style={{ fontSize: 10, fontFamily: 'monospace', color: '#CC2200', marginBottom: 4 }}>MOTIF DE REFUS</div>
