@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
 import Layout from '../components/Layout'
 
 const CATEGORIES = ['Activation terrain', 'Merchandising', 'Événement', 'Digital', 'Co-branding', 'Autre']
