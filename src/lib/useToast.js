@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import React from 'react'
 
 export function useToast() {
   const [toast, setToast] = useState(null)
@@ -11,14 +12,18 @@ export function useToast() {
 
 export function Toast({ toast }) {
   if (!toast) return null
-  return (
-    <>
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 20, right: 20, background: '#fff', border: '0.5px solid #d1d5db', borderRadius: 8, padding: '10px 16px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8, zIndex: 300 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: toast.type === 'error' ? '#dc2626' : '#16a34a' }} />
-          {toast.msg}
-        </div>
-      )}
-    </>
+  return React.createElement(
+    'div',
+    {
+      style: {
+        position: 'fixed', bottom: 20, right: 20, background: '#fff',
+        border: '0.5px solid #d1d5db', borderRadius: 8, padding: '10px 16px',
+        fontSize: 12, display: 'flex', alignItems: 'center', gap: 8, zIndex: 300
+      }
+    },
+    React.createElement('div', {
+      style: { width: 7, height: 7, borderRadius: '50%', background: toast.type === 'error' ? '#dc2626' : '#16a34a', flexShrink: 0 }
+    }),
+    toast.msg
   )
 }
