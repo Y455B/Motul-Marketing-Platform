@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { supabase, isAdmin, signOut } from '../lib/supabase'
+
 
 const NAV_ADMIN = [
   { label: 'Hub Fichiers', path: '/hub', icon: '⊞' },
