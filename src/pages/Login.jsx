@@ -1,14 +1,27 @@
-import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
 
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    navigate('/hub')
+    setLoading(true)
+    setError('')
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) {
+      setError(error.message)
+      setLoading(false)
+      return
+    }
+    if (data.session) {
+      navigate('/hub')
+    }
   }
 
   return (
@@ -29,8 +42,13 @@ export default function Login() {
               <label className="form-label">Mot de passe</label>
               <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required />
             </div>
-            <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: 9 }}>
-              Se connecter
+            {error && (
+              <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 12, padding: '8px 10px', background: '#fee2e2', borderRadius: 6 }}>
+                {error}
+              </div>
+            )}
+            <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: 9 }} disabled={loading}>
+              {loading ? 'Connexion...' : 'Se connecter'}
             </button>
           </form>
         </div>
