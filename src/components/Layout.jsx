@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
 
 const NAV = [
   { label: 'Hub Fichiers', path: '/hub', icon: '⊞' },
@@ -14,7 +15,25 @@ const NAV = [
 
 export default function Layout({ children }) {
   const location = useLocation()
+  const navigate = useNavigate()
+  const [user, setUser] = useState(null)
   const [showNotifs, setShowNotifs] = useState(false)
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUser(data.user))
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+      if (!session) navigate('/login')
+    })
+    return () => listener.subscription.unsubscribe()
+  }, [])
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+    navigate('/login')
+  }
+
+  const admin = user?.user_metadata?.role === 'admin'
 
   return (
     <div className="app-shell">
@@ -27,7 +46,7 @@ export default function Layout({ children }) {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, position: 'relative' }}>
-          <button onClick={() => setShowNotifs(v => !v)} style={{ background: 'none', border: '0.5px solid #e5e7eb', borderRadius: 6, padding: 6, cursor: 'pointer', position: 'relative', fontSize: 15 }}>
+          <button onClick={() => setShowNotifs(v => !v)} style={{ background: 'none', border: '0.5px solid #e5e7eb', borderRadius: 6, padding: 6, cursor: 'pointer', fontSize: 15 }}>
             🔔
           </button>
           {showNotifs && (
@@ -39,12 +58,15 @@ export default function Layout({ children }) {
               </div>
             </div>
           )}
-          <span style={{ fontSize: 12, color: '#6b7280' }}>admin@motul.ma</span>
-          <span style={{ fontSize: 10, background: '#CC2200', color: '#fff', borderRadius: 10, padding: '2px 8px', fontFamily: 'monospace' }}>admin</span>
-          <span style={{ fontSize: 11, color: '#6b7280', padding: '4px 8px', border: '0.5px solid #e5e7eb', borderRadius: 4, cursor: 'pointer' }}>Déconnexion</span>
+          <span style={{ fontSize: 12, color: '#6b7280' }}>{user?.email}</span>
+          <span style={{ fontSize: 10, background: admin ? '#CC2200' : '#e5e7eb', color: admin ? '#fff' : '#6b7280', borderRadius: 10, padding: '2px 8px', fontFamily: 'monospace' }}>
+            {admin ? 'admin' : 'user'}
+          </span>
+          <button onClick={handleSignOut} style={{ fontSize: 11, color: '#6b7280', padding: '4px 8px', border: '0.5px solid #e5e7eb', borderRadius: 4, background: 'none', cursor: 'pointer' }}>
+            Déconnexion
+          </button>
         </div>
       </header>
-
       <div className="body-wrap">
         <aside className="sidebar">
           {NAV.map(item => (
