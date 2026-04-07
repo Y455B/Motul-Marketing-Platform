@@ -51,8 +51,8 @@ export default function Home({ user }) {
               <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '20px 28px' }}>
                 <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 4, textShadow: '0 1px 4px rgba(0,0,0,.5)' }}>{s.title}</div>
                 {s.subtitle && <div style={{ fontSize: 13, color: 'rgba(255,255,255,.85)', fontWeight: 500, marginBottom: s.btn_label ? 12 : 0 }}>{s.subtitle}</div>}
-                {s.btn_label && (
-                  <div style={{ display: 'inline-block', background: '#CC2200', color: '#fff', fontSize: 12, padding: '6px 16px', borderRadius: 6, fontWeight: 500, cursor: 'pointer' }}>{s.btn_label}</div>
+                {s.btn_label && s.btn_url && (
+                  <a href={s.btn_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', background: '#CC2200', color: '#fff', fontSize: 12, padding: '6px 16px', borderRadius: 6, fontWeight: 500, cursor: 'pointer', textDecoration: 'none' }}>{s.btn_label}</a>
                 )}
               </div>
             </div>
