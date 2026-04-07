@@ -31,7 +31,7 @@ export default function Home({ user }) {
   }, [sliders.length])
 
   const SHORTCUTS = [
-    { label: 'Actions Marketing', sub: 'Soumettre une demande', path: '/dmp', icon: '📋', color: '#CC2200' },
+    { label: 'Actions Marketing', sub: 'Soumettre une demande', path: '/dmp', icon: '◈', color: '#CC2200' },
     { label: 'Motul Library', sub: 'Accéder aux ressources', path: '/library', icon: '📚', color: '#2A5FA8' },
     { label: 'Actualités', sub: 'Dernières nouvelles', path: '/news', icon: '📰', color: '#059669' },
   ]
@@ -42,31 +42,17 @@ export default function Home({ user }) {
       {sliders.length > 0 ? (
         <div style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', marginBottom: 24, height: 220, background: '#1a1a1a' }}>
           {sliders.map((s, i) => (
-            <div key={s.id} style={{ position: 'absolute', inset: 0, opacity: i === activeSlider ? 1 : 0, transition: 'opacity .7s ease', pointerEvents: i === activeSlider ? 'auto' : 'none' }}>
+            <div key={s.id} style={{ position: 'absolute', inset: 0, opacity: i === activeSlider ? 1 : 0, transition: 'opacity .7s ease' }}>
               {s.image_url
-                ? <img
-                    src={s.image_url}
-                    alt={s.title}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                    onError={e => { e.target.style.display = 'none'; e.target.parentElement.querySelector('.slider-fallback').style.display = 'block' }}
-                  />
-                : null
+                ? <img src={s.image_url} alt={s.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                : <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg, #CC2200 0%, #A01A00 100%)' }} />
               }
-              <div className="slider-fallback" style={{ display: s.image_url ? 'none' : 'block', position: 'absolute', inset: 0, background: 'linear-gradient(135deg,#CC2200,#A01A00)' }} />
-              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top,rgba(0,0,0,.75) 0%,rgba(0,0,0,.1) 60%,transparent 100%)' }} />
-              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '20px 28px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 4, textShadow: '0 1px 4px rgba(0,0,0,.5)' }}>{s.title}</div>
-                  {s.subtitle && <div style={{ fontSize: 13, color: 'rgba(255,255,255,.85)', fontWeight: 500 }}>{s.subtitle}</div>}
-                </div>
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,.75) 0%, rgba(0,0,0,.1) 60%, transparent 100%)' }} />
+              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '20px 28px' }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 4, textShadow: '0 1px 4px rgba(0,0,0,.5)' }}>{s.title}</div>
+                {s.subtitle && <div style={{ fontSize: 13, color: 'rgba(255,255,255,.85)', fontWeight: 500, marginBottom: s.btn_label ? 12 : 0 }}>{s.subtitle}</div>}
                 {s.btn_label && (
-                  s.btn_url
-                    ? <a href={s.btn_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', background: '#CC2200', color: '#fff', fontSize: 12, padding: '8px 18px', borderRadius: 6, fontWeight: 500, textDecoration: 'none', flexShrink: 0, marginLeft: 16 }}>
-                        {s.btn_label}
-                      </a>
-                    : <div style={{ display: 'inline-block', background: '#CC2200', color: '#fff', fontSize: 12, padding: '8px 18px', borderRadius: 6, fontWeight: 500, flexShrink: 0, marginLeft: 16 }}>
-                        {s.btn_label}
-                      </div>
+                  <div style={{ display: 'inline-block', background: '#CC2200', color: '#fff', fontSize: 12, padding: '6px 16px', borderRadius: 6, fontWeight: 500, cursor: 'pointer' }}>{s.btn_label}</div>
                 )}
               </div>
             </div>
@@ -80,10 +66,10 @@ export default function Home({ user }) {
           )}
         </div>
       ) : (
-        <div style={{ borderRadius: 14, background: 'linear-gradient(135deg,#CC2200,#A01A00)', marginBottom: 24, height: 180, display: 'flex', alignItems: 'center', padding: '0 32px' }}>
+        <div style={{ borderRadius: 14, background: 'linear-gradient(135deg, #CC2200 0%, #A01A00 100%)', marginBottom: 24, height: 180, display: 'flex', alignItems: 'center', padding: '0 32px' }}>
           <div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Bienvenue sur Africa Marketing Platform</div>
-            <div style={{ fontSize: 14, color: 'rgba(255,255,255,.75)' }}>Votre espace partenaire dédié aux activations Motul Africa</div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 32, letterSpacing: 2, color: '#fff', marginBottom: 8 }}>BIENVENUE SUR AFRICA MARKETING PLATFORM</div>
+            <div style={{ fontSize: 14, color: 'rgba(255,255,255,.75)', letterSpacing: '.5px' }}>Votre espace partenaire dédié aux activations Motul Africa</div>
           </div>
         </div>
       )}
@@ -118,13 +104,13 @@ export default function Home({ user }) {
       {/* Raccourcis */}
       <div style={{ marginBottom: 28 }}>
         <div className="section-title">Accès rapide</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 12 }}>
           {SHORTCUTS.map(s => (
             <Link key={s.path} to={s.path} style={{ textDecoration: 'none' }}>
               <div className="card" style={{ padding: '18px 20px', cursor: 'pointer', transition: 'border-color .15s', display: 'flex', alignItems: 'center', gap: 14 }}
                 onMouseEnter={e => e.currentTarget.style.borderColor = s.color}
                 onMouseLeave={e => e.currentTarget.style.borderColor = '#e5e7eb'}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, background: s.color + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>{s.icon}</div>
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: s.color + '15', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>{s.icon}</div>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', marginBottom: 2 }}>{s.label}</div>
                   <div style={{ fontSize: 11, color: '#9ca3af' }}>{s.sub}</div>
