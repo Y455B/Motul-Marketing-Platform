@@ -27,7 +27,9 @@ export default function Sliders({ user }) {
 
   useEffect(() => { load() }, [])
 
-  const openNew = () => { setForm(EMPTY); setEditId(null); setImageFile(null); setImagePreview(null); setShowForm(true) }
+  const openNew = () => {
+    setForm(EMPTY); setEditId(null); setImageFile(null); setImagePreview(null); setShowForm(true)
+  }
 
   const openEdit = (s) => {
     setForm({ title: s.title, subtitle: s.subtitle || '', btn_label: s.btn_label || '', btn_url: s.btn_url || '', visible: s.visible })
@@ -49,7 +51,7 @@ export default function Sliders({ user }) {
     if (imageFile) {
       const ext = imageFile.name.split('.').pop()
       const path = `sliders/${Date.now()}.${ext}`
-      const { data: upData, error: upErr } = await supabase.storage
+      const { error: upErr } = await supabase.storage
         .from('platform-files')
         .upload(path, imageFile, { upsert: true })
       if (upErr) { showToast(upErr.message, 'error'); setSaving(false); return }
@@ -57,14 +59,7 @@ export default function Sliders({ user }) {
       image_url = urlData.publicUrl
     }
 
-    const payload = {
-      title: form.title,
-      subtitle: form.subtitle,
-      btn_label: form.btn_label,
-      btn_url: form.btn_url,
-      visible: form.visible,
-      image_url
-    }
+    const payload = { title: form.title, subtitle: form.subtitle, btn_label: form.btn_label, btn_url: form.btn_url, visible: form.visible, image_url }
 
     if (editId) {
       const { error } = await supabase.from('sliders').update(payload).eq('id', editId)
@@ -95,7 +90,7 @@ export default function Sliders({ user }) {
       <div className="page-header">
         <div>
           <div className="page-title">Sliders homepage</div>
-          <div className="page-sub">Bannières affichées sur la page d'accueil · {sliders.filter(s => s.visible).length} actif(s)</div>
+          <div className="page-sub">Bannières visibles sur la homepage · ajoutez une image + titre + CTA optionnel · {sliders.filter(s => s.visible).length} actif(s)</div>
         </div>
         <button className="btn btn-primary" onClick={openNew}>+ Nouveau slider</button>
       </div>
@@ -118,7 +113,7 @@ export default function Sliders({ user }) {
                 <input value={form.btn_label} onChange={e => setForm(p => ({ ...p, btn_label: e.target.value }))} placeholder="Ex: En savoir plus" />
               </div>
               <div>
-                <label className="form-label">URL de redirection du CTA</label>
+                <label className="form-label">URL de redirection</label>
                 <input type="url" value={form.btn_url} onChange={e => setForm(p => ({ ...p, btn_url: e.target.value }))} placeholder="https://..." />
               </div>
               <div className="form-full">
@@ -127,7 +122,8 @@ export default function Sliders({ user }) {
                 {imagePreview && (
                   <div style={{ marginTop: 10 }}>
                     <img src={imagePreview} alt="Aperçu" style={{ width: '100%', maxHeight: 160, borderRadius: 8, objectFit: 'cover', display: 'block' }} />
-                    <button type="button" onClick={() => { setImageFile(null); setImagePreview(editId ? sliders.find(s => s.id === editId)?.image_url : null) }} style={{ marginTop: 6, fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                    <button type="button" onClick={() => { setImageFile(null); setImagePreview(editId ? sliders.find(s => s.id === editId)?.image_url : null) }}
+                      style={{ marginTop: 6, fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
                       ✕ Retirer l'image
                     </button>
                   </div>
@@ -148,11 +144,10 @@ export default function Sliders({ user }) {
 
       {loading ? <div className="empty-state">Chargement...</div>
         : sliders.length === 0
-          ? <div className="empty-state"><div className="empty-state-icon">🖼️</div>Aucun slider. Créez votre premier slider.</div>
+          ? <div className="empty-state"><div className="empty-state-icon">🖼️</div>Aucun slider. Créez votre premier slider pour qu'il apparaisse sur la homepage.</div>
           : <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {sliders.map(s => (
                 <div key={s.id} className="card" style={{ overflow: 'hidden' }}>
-                  {/* Prévisualisation */}
                   <div style={{ position: 'relative', height: 120, background: '#1a1a1a', overflow: 'hidden' }}>
                     {s.image_url
                       ? <img src={s.image_url} alt={s.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={e => { e.target.style.display = 'none' }} />
@@ -167,7 +162,6 @@ export default function Sliders({ user }) {
                       <div style={{ position: 'absolute', bottom: 10, right: 14, background: '#CC2200', color: '#fff', fontSize: 10, padding: '3px 10px', borderRadius: 4, fontFamily: 'monospace' }}>{s.btn_label}</div>
                     )}
                   </div>
-                  {/* Actions */}
                   <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ flex: 1 }}>
                       {s.btn_url && <div style={{ fontSize: 11, color: '#9ca3af', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>→ {s.btn_url}</div>}
