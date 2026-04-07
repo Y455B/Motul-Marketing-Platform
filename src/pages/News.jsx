@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import Layout from '../components/Layout'
 import { ConfirmModal } from '../components/ConfirmModal'
 import { useToast, Toast } from '../lib/useToast.jsx'
@@ -19,6 +20,21 @@ export default function News({ user }) {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const { toast, showToast } = useToast()
   const admin = isAdmin(user)
+  // Ref pour protéger showForm contre les re-renders liés au changement d'onglet
+  const formLocked = useRef(false)
+
+  useEffect(() => {
+    // Bloquer tout setState qui fermerait le form quand l'onglet perd le focus
+    const handler = (e) => {
+      if (document.visibilityState === 'hidden') {
+        formLocked.current = true
+      } else {
+        formLocked.current = false
+      }
+    }
+    document.addEventListener('visibilitychange', handler)
+    return () => document.removeEventListener('visibilitychange', handler)
+  }, [])
 
   const load = async () => {
     setLoading(true)
@@ -124,8 +140,8 @@ export default function News({ user }) {
         {admin && <button className="btn btn-primary" onClick={openNew}>+ Nouvel article</button>}
       </div>
 
-      {/* Modal formulaire — position fixed, résistante au changement d'onglet */}
-      {admin && showForm && (
+      {/* Modal formulaire — rendue dans document.body via Portal */}
+      {admin && showForm && createPortal((
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', padding: 28, boxShadow: '0 8px 40px rgba(0,0,0,.2)' }}
             onClick={e => e.stopPropagation()}>
@@ -168,7 +184,7 @@ export default function News({ user }) {
             </form>
           </div>
         </div>
-      )}
+      ), document.body)}
 
       {loading ? <div className="empty-state">Chargement...</div>
         : news.length === 0
