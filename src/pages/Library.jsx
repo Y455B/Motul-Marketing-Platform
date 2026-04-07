@@ -144,6 +144,33 @@ export default function Library({ user }) {
     showToast('Document supprimé'); listCurrentLevel()
   }
 
+
+  // Supprimer un dossier et tout son contenu récursivement
+  const deleteFolder = async (folderName) => {
+    const folderPath = `${currentStoragePath()}/${folderName}`
+    const collectAllFiles = async (path) => {
+      const { data } = await supabase.storage.from(BUCKET).list(path, { limit: 500 })
+      if (!data) return []
+      let files = []
+      for (const item of data) {
+        if (item.id) {
+          files.push(`${path}/${item.name}`)
+        } else {
+          const sub = await collectAllFiles(`${path}/${item.name}`)
+          files = [...files, ...sub]
+        }
+      }
+      return files
+    }
+    const allFiles = await collectAllFiles(folderPath)
+    const toRemove = allFiles.length > 0 ? allFiles : []
+    toRemove.push(`${folderPath}/.keep`)
+    const { error } = await supabase.storage.from(BUCKET).remove(toRemove)
+    if (error) { showToast(error.message, 'error'); return }
+    showToast(`Dossier supprimé`)
+    listCurrentLevel()
+  }
+
   const getSignedUrl = async (name) => {
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(`${currentStoragePath()}/${name}`, 3600)
     if (error) { showToast(error.message, 'error'); return null }
@@ -170,7 +197,7 @@ export default function Library({ user }) {
   const Breadcrumb = () => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, marginBottom: 12, flexWrap: 'wrap' }}>
       <span style={{ cursor: 'pointer', color: pathSegments.length === 0 ? '#CC2200' : '#6b7280', fontWeight: pathSegments.length === 0 ? 600 : 400 }} onClick={() => navigateTo([])}>
-        📚 Bibliothèque
+        📚 Motul Library
       </span>
       {pathSegments.map((seg, i) => (
         <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -225,15 +252,22 @@ export default function Library({ user }) {
       {folders.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 8, marginBottom: 12 }}>
           {folders.map(f => (
-            <div key={f.name} className="card" style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'border-color .15s' }}
+            <div key={f.name} className="card" style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 8, transition: 'border-color .15s', position: 'relative' }}
               onMouseEnter={e => e.currentTarget.style.borderColor = '#CC2200'}
-              onMouseLeave={e => e.currentTarget.style.borderColor = '#e5e7eb'}
-              onClick={() => goInto(f.name)}>
-              <span style={{ fontSize: 22 }}>📁</span>
-              <div style={{ flex: 1, overflow: 'hidden' }}>
+              onMouseLeave={e => e.currentTarget.style.borderColor = '#e5e7eb'}>
+              <span style={{ fontSize: 22, cursor: 'pointer' }} onClick={() => goInto(f.name)}>📁</span>
+              <div style={{ flex: 1, overflow: 'hidden', cursor: 'pointer' }} onClick={() => goInto(f.name)}>
                 <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
                 <div style={{ fontSize: 10, color: '#9ca3af' }}>Ouvrir →</div>
               </div>
+              {canUpload && (
+                <button
+                  className="btn"
+                  style={{ width: 24, height: 24, padding: 0, fontSize: 11, color: '#dc2626', flexShrink: 0 }}
+                  title="Supprimer le dossier"
+                  onClick={e => { e.stopPropagation(); if (window.confirm(`Supprimer le dossier "${f.name}" et tout son contenu ?`)) deleteFolder(f.name) }}
+                >✕</button>
+              )}
             </div>
           ))}
         </div>
