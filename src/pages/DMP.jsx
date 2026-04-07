@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
 import { ConfirmModal } from '../components/ConfirmModal'
 import { useToast, Toast } from '../lib/useToast.jsx'
-import { supabase, isAdmin } from '../lib/supabase'
+import { supabase, isAdmin, createNotification } from '../lib/supabase'
 
 const CATEGORIES = ['Activation terrain', 'Merchandising', 'Événement', 'Digital', 'Co-branding', 'Autre']
 const STATUS_LABELS = { pending: 'En attente', approved: 'Validée', rejected: 'Rejetée', archived: 'Archive' }
@@ -27,7 +27,6 @@ export default function DMP({ user }) {
   const load = async () => {
     setLoading(true)
     let query = supabase.from('dmp_requests').select('*').order('created_at', { ascending: false })
-    // User voit uniquement ses propres demandes
     if (!admin) query = query.eq('user_id', user?.id)
     const { data, error } = await query
     if (error) showToast(error.message, 'error')
@@ -46,16 +45,18 @@ export default function DMP({ user }) {
   const totalBudget = items.reduce((s, d) => s + (Number(d.budget) || 0), 0)
   const generateId = () => `DMP-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`
 
-  const validate = async (id) => {
-    const { error } = await supabase.from('dmp_requests').update({ status: 'approved' }).eq('id', id)
-    if (error) showToast(error.message, 'error')
-    else { showToast('Demande validée ✓'); setSelected(null); load() }
+  const validate = async (d) => {
+    const { error } = await supabase.from('dmp_requests').update({ status: 'approved' }).eq('id', d.id)
+    if (error) { showToast(error.message, 'error'); return }
+    if (d.user_id) await createNotification(d.user_id, 'DMP_VALIDÉE', `Votre demande "${d.title}" a été validée.`)
+    showToast('Demande validée ✓'); setSelected(null); load()
   }
 
-  const reject = async (id) => {
-    const { error } = await supabase.from('dmp_requests').update({ status: 'rejected', motif: motifInput || 'Demande non conforme' }).eq('id', id)
-    if (error) showToast(error.message, 'error')
-    else { showToast('Demande rejetée'); setMotifInput(''); setSelected(null); load() }
+  const reject = async (d) => {
+    const { error } = await supabase.from('dmp_requests').update({ status: 'rejected', motif: motifInput || 'Demande non conforme' }).eq('id', d.id)
+    if (error) { showToast(error.message, 'error'); return }
+    if (d.user_id) await createNotification(d.user_id, 'DMP_REJETÉE', `Votre demande "${d.title}" a été rejetée. Motif : ${motifInput || 'Demande non conforme'}`)
+    showToast('Demande rejetée'); setMotifInput(''); setSelected(null); load()
   }
 
   const confirmDelete = async () => {
@@ -69,18 +70,18 @@ export default function DMP({ user }) {
     e.preventDefault()
     setSubmitting(true)
     const { error } = await supabase.from('dmp_requests').insert({
-      id: generateId(),
-      ...form,
-      budget: Number(form.budget),
-      status: 'pending',
-      user_id: user?.id
+      id: generateId(), ...form, budget: Number(form.budget), status: 'pending', user_id: user?.id
     })
     if (error) showToast(error.message, 'error')
-    else { setSubmitted(true); load() }
+    else {
+      setSubmitted(true)
+      // Notifier les admins — on récupère les admins via auth.users (limitation : on notifie l'utilisateur lui-même pour confirmation)
+      await createNotification(user?.id, 'DMP_SOUMISE', `Votre demande "${form.title}" a bien été transmise et est en attente de validation.`)
+      load()
+    }
     setSubmitting(false)
   }
 
-  // Vue formulaire
   if (view === 'new') return (
     <Layout user={user}>
       <div className="page-header">
@@ -113,7 +114,7 @@ export default function DMP({ user }) {
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
               <button type="button" className="btn" onClick={() => setView('list')}>Annuler</button>
-              <button type="submit" className="btn btn-primary" disabled={submitting}>{submitting ? 'Envoi...' : 'Soumettre la demande'}</button>
+              <button type="submit" className="btn btn-primary" disabled={submitting}>{submitting ? 'Envoi...' : 'Soumettre'}</button>
             </div>
           </form>
         </div>
@@ -122,13 +123,12 @@ export default function DMP({ user }) {
     </Layout>
   )
 
-  // Vue liste
   return (
     <Layout user={user}>
       <div className="page-header">
         <div>
           <div className="page-title">Actions Marketing</div>
-          <div className="page-sub">{admin ? 'Back-office DMP · Toutes les demandes partenaires' : 'Vos demandes marketing Motul Africa'}</div>
+          <div className="page-sub">{admin ? 'Back-office DMP · Toutes les demandes' : 'Vos demandes marketing Motul Africa'}</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-primary" onClick={() => { setView('new'); setSubmitted(false); setForm(EMPTY_FORM) }}>+ Nouvelle demande</button>
@@ -141,12 +141,12 @@ export default function DMP({ user }) {
           <div className="stat-card"><div className="stat-label">Total</div><div className="stat-val">{items.length}</div></div>
           <div className="stat-card"><div className="stat-label">En attente</div><div className="stat-val" style={{ color: '#D97706' }}>{items.filter(d => d.status === 'pending').length}</div></div>
           <div className="stat-card"><div className="stat-label">Validées</div><div className="stat-val" style={{ color: '#16A34A' }}>{items.filter(d => d.status === 'approved').length}</div></div>
-          <div className="stat-card"><div className="stat-label">Budget total</div><div className="stat-val" style={{ fontSize: 15 }}>{totalBudget.toLocaleString()} MAD</div></div>
+          <div className="stat-card"><div className="stat-label">Budget total</div><div className="stat-val" style={{ fontSize: 14 }}>{totalBudget.toLocaleString()} MAD</div></div>
         </div>
       )}
 
       {admin && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
           {['all', 'pending', 'approved', 'rejected', 'archived'].map(f => (
             <button key={f} className="btn" onClick={() => setFilter(f)} style={filter === f ? { background: '#FFF0ED', color: '#CC2200', borderColor: '#CC2200' } : {}}>
               {f === 'all' ? 'Tout' : STATUS_LABELS[f]}
@@ -158,21 +158,21 @@ export default function DMP({ user }) {
 
       <div className="table-card" style={{ position: 'relative' }}>
         <div className="table-head" style={{ gridTemplateColumns: admin ? '2fr 100px 110px 110px 90px 80px' : '2fr 110px 110px 90px' }}>
-          {admin
-            ? ['Action / Entreprise', 'Catégorie', 'Budget', 'Date lancement', 'Statut', 'Actions'].map(h => <span key={h} className="th">{h}</span>)
-            : ['Action', 'Date lancement', 'Date soumission', 'Statut'].map(h => <span key={h} className="th">{h}</span>)
-          }
+          {(admin
+            ? ['Action / Entreprise', 'Catégorie', 'Budget', 'Date lancement', 'Statut', 'Actions']
+            : ['Action', 'Date lancement', 'Soumis le', 'Statut']
+          ).map(h => <span key={h} className="th">{h}</span>)}
         </div>
 
         {loading ? <div className="empty-state">Chargement...</div>
           : filtered.length === 0
-            ? <div className="empty-state"><div className="empty-state-icon">◈</div>{admin ? 'Aucune demande trouvée.' : 'Vous n\'avez pas encore soumis de demande.'}</div>
+            ? <div className="empty-state"><div className="empty-state-icon">◈</div>{admin ? 'Aucune demande.' : 'Vous n\'avez pas encore soumis de demande.'}</div>
             : filtered.map(d => (
               <div key={d.id} className="table-row"
                 style={{ gridTemplateColumns: admin ? '2fr 100px 110px 110px 90px 80px' : '2fr 110px 110px 90px', cursor: admin ? 'pointer' : 'default' }}
                 onClick={() => admin && setSelected(d)}>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: '#111827' }}>{d.title}</div>
+                  <div style={{ fontSize: 12, fontWeight: 500 }}>{d.title}</div>
                   <div style={{ fontSize: 11, color: '#9ca3af' }}>{d.company} · {d.id}</div>
                 </div>
                 {admin && <span className="td">{d.category}</span>}
@@ -182,7 +182,7 @@ export default function DMP({ user }) {
                 <span className={`badge ${STATUS_CLASS[d.status] || 'badge-arch'}`}>{STATUS_LABELS[d.status] || d.status}</span>
                 {admin && (
                   <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
-                    <button className="btn btn-success" style={{ width: 26, height: 26, padding: 0, fontSize: 12 }} onClick={() => validate(d.id)} title="Valider">✓</button>
+                    <button className="btn btn-success" style={{ width: 26, height: 26, padding: 0, fontSize: 12 }} onClick={() => validate(d)} title="Valider">✓</button>
                     <button className="btn btn-danger" style={{ width: 26, height: 26, padding: 0, fontSize: 12 }} onClick={() => setDeleteTarget(d)} title="Supprimer">✕</button>
                   </div>
                 )}
@@ -190,13 +190,12 @@ export default function DMP({ user }) {
             ))
         }
 
-        {/* Panel détail admin */}
         {selected && (
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.35)', display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', borderRadius: 12 }}>
-            <div style={{ width: 400, background: '#fff', borderRadius: '0 12px 12px 0', height: '100%', overflow: 'auto', padding: 24 }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.35)', display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', borderRadius: 12, zIndex: 10 }}>
+            <div style={{ width: 400, background: '#fff', borderRadius: '0 12px 12px 0', height: '100%', overflow: 'auto', padding: 24, boxShadow: '-4px 0 20px rgba(0,0,0,.1)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <div style={{ fontSize: 15, fontWeight: 600 }}>{selected.title}</div>
-                <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af' }}>✕</button>
+                <div style={{ fontSize: 15, fontWeight: 600, paddingRight: 10 }}>{selected.title}</div>
+                <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af', flexShrink: 0 }}>✕</button>
               </div>
               <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 18 }}>{selected.id}</div>
               {[['Entreprise', selected.company], ['Demandeur', selected.demandeur], ['Catégorie', selected.category], ['Date de lancement', selected.launch_date], ['Budget', `${Number(selected.budget).toLocaleString()} MAD`]].map(([k, v]) => (
@@ -205,12 +204,7 @@ export default function DMP({ user }) {
                   <div style={{ fontSize: 13, fontWeight: k === 'Budget' ? 600 : 400 }}>{v}</div>
                 </div>
               ))}
-              {selected.comment && (
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 3 }}>COMMENTAIRE</div>
-                  <div style={{ fontSize: 13 }}>{selected.comment}</div>
-                </div>
-              )}
+              {selected.comment && <div style={{ marginBottom: 12 }}><div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 3 }}>COMMENTAIRE</div><div style={{ fontSize: 13 }}>{selected.comment}</div></div>}
               {selected.status === 'rejected' && selected.motif && (
                 <div style={{ background: '#FFF0ED', borderLeft: '3px solid #CC2200', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>
                   <div style={{ fontSize: 10, fontFamily: 'monospace', color: '#CC2200', marginBottom: 4 }}>MOTIF DE REFUS</div>
@@ -223,8 +217,8 @@ export default function DMP({ user }) {
                   <label className="form-label">Motif de refus (si applicable)</label>
                   <textarea value={motifInput} onChange={e => setMotifInput(e.target.value)} placeholder="Saisissez le motif..." rows={3} style={{ marginBottom: 14 }} />
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn btn-success" onClick={() => validate(selected.id)}>✓ Valider</button>
-                    <button className="btn btn-danger" onClick={() => reject(selected.id)}>✕ Rejeter</button>
+                    <button className="btn btn-success" onClick={() => validate(selected)}>✓ Valider</button>
+                    <button className="btn btn-danger" onClick={() => reject(selected)}>✕ Rejeter</button>
                   </div>
                 </>
               )}

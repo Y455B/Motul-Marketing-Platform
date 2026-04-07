@@ -13,14 +13,13 @@ body { font-family: var(--font); background: #f9fafb; color: #111827; font-size:
 
 .app-shell { display: flex; flex-direction: column; min-height: 100vh; }
 .topbar { height: 52px; background: #fff; border-bottom: 0.5px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; position: sticky; top: 0; z-index: 40; }
-.body-wrap { display: flex; flex: 1; }
-.sidebar { width: 210px; min-width: 210px; background: #fff; border-right: 0.5px solid #e5e7eb; padding: 14px 0; display: flex; flex-direction: column; }
+.body-wrap { display: flex; flex: 1; overflow: hidden; }
+.sidebar { width: 210px; min-width: 210px; background: #fff; border-right: 0.5px solid #e5e7eb; padding: 14px 0; display: flex; flex-direction: column; overflow-y: auto; }
 .main { flex: 1; padding: 24px 28px; overflow-y: auto; }
 
 .sidebar-item { display: flex; align-items: center; gap: 9px; padding: 8px 14px; font-size: 12px; color: #6b7280; cursor: pointer; border-left: 2px solid transparent; transition: all .12s; text-decoration: none; }
 .sidebar-item:hover { background: #f9fafb; color: #111827; }
 .sidebar-item.active { color: var(--red); border-left-color: var(--red); background: var(--red-bg); font-weight: 500; }
-.sidebar-badge { margin-left: auto; font-size: 10px; background: #fef3c7; color: #92400e; border-radius: 8px; padding: 1px 6px; font-family: var(--mono); }
 .sidebar-divider { height: 0.5px; background: #f3f4f6; margin: 8px 0; }
 .sidebar-label { font-size: 10px; color: #9ca3af; padding: 4px 14px; letter-spacing: .6px; font-family: var(--mono); text-transform: uppercase; }
 
@@ -91,9 +90,9 @@ input[type="file"] { background: #fff; padding: 6px; cursor: pointer; }
 
 .empty-state { padding: 48px 20px; text-align: center; color: #9ca3af; font-size: 13px; }
 .empty-state-icon { font-size: 32px; margin-bottom: 10px; opacity: .5; }
-
 .section-title { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 12px; }
 
 .db-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .db-dot.online { background: #16a34a; box-shadow: 0 0 0 2px #dcfce7; }
 .db-dot.offline { background: #dc2626; box-shadow: 0 0 0 2px #fee2e2; }
+.db-dot.checking { background: #d1d5db; }

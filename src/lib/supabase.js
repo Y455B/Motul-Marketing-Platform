@@ -6,3 +6,8 @@ export const supabase = createClient(
 )
 
 export const isAdmin = (user) => user?.user_metadata?.role === 'admin'
+
+export const createNotification = async (userId, type, message) => {
+  if (!userId) return
+  await supabase.from('notifications').insert({ user_id: userId, type, message })
+}

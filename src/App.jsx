@@ -50,7 +50,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={user ? <Navigate to="/home" replace /> : <Login />} />
+        <Route path="/login" element={user && user !== undefined ? <Navigate to="/home" replace /> : <Login />} />
         <Route path="/" element={<Navigate to="/home" replace />} />
         <Route path="/home" element={<P><Home user={user} /></P>} />
         <Route path="/hub" element={<P><Hub user={user} /></P>} />
@@ -58,10 +58,9 @@ export default function App() {
         <Route path="/library" element={<P><Library user={user} /></P>} />
         <Route path="/news" element={<P><News user={user} /></P>} />
         <Route path="/account" element={<P><Account user={user} /></P>} />
-        {/* Routes admin uniquement */}
         <Route path="/sliders" element={<P>{admin ? <Sliders user={user} /> : <Navigate to="/home" replace />}</P>} />
         <Route path="/newsletter" element={<P>{admin ? <Newsletter user={user} /> : <Navigate to="/home" replace />}</P>} />
-        <Route path="/users" element={<P>{admin ? <Placeholder title="Utilisateurs" sub="Gestion des comptes — à venir." user={user} /> : <Navigate to="/home" replace />}</P>} />
+        <Route path="/users" element={<P>{admin ? <Placeholder title="Utilisateurs" sub="Gestion des comptes et droits — à venir." user={user} /> : <Navigate to="/home" replace />}</P>} />
         <Route path="/companies" element={<P>{admin ? <Placeholder title="Entreprises" sub="Référentiel partenaires — à venir." user={user} /> : <Navigate to="/home" replace />}</P>} />
         <Route path="*" element={<Navigate to="/home" replace />} />
       </Routes>

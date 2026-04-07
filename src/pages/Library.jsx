@@ -1,9 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import Layout from '../components/Layout'
 import { useToast, Toast } from '../lib/useToast.jsx'
-import { supabase, isAdmin } from '../lib/supabase'
+import { supabase, isAdmin, createNotification } from '../lib/supabase'
 
 const EMPTY_FORM = { nom: '', prenom: '', email: '', entreprise: '', poste: '' }
+const BUCKET = 'platform-files'
+const BASE = 'library'
+
+const EXT_ICONS = { pdf: '📄', docx: '📝', doc: '📝', xlsx: '📊', xls: '📊', pptx: '📑', ppt: '📑', png: '🖼️', jpg: '🖼️', jpeg: '🖼️', mp4: '🎬', zip: '🗜️' }
+const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp']
+const PDF_EXTS = ['pdf']
 
 export default function Library({ user }) {
   const [requests, setRequests] = useState([])
@@ -12,33 +18,52 @@ export default function Library({ user }) {
   const [submitted, setSubmitted] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
-  const [libraryDocs, setLibraryDocs] = useState([])
+  const [folders, setFolders] = useState([])
+  const [activeFolder, setActiveFolder] = useState(null)
+  const [docs, setDocs] = useState([])
   const [uploading, setUploading] = useState(false)
+  const [newFolder, setNewFolder] = useState('')
+  const [showNewFolder, setShowNewFolder] = useState(false)
+  const [preview, setPreview] = useState(null)
   const [rejectTarget, setRejectTarget] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const fileInputRef = useRef()
   const { toast, showToast } = useToast()
   const admin = isAdmin(user)
 
+  const loadFolders = async () => {
+    const { data } = await supabase.storage.from(BUCKET).list(BASE + '/', { limit: 100 })
+    setFolders((data || []).filter(f => !f.id))
+  }
+
+  const loadDocs = async (folder) => {
+    const path = folder ? `${BASE}/${folder}/` : `${BASE}/`
+    const { data } = await supabase.storage.from(BUCKET).list(path, { limit: 200, sortBy: { column: 'created_at', order: 'desc' } })
+    setDocs((data || []).filter(f => f.id && f.name !== '.keep'))
+  }
+
   const load = async () => {
     setLoading(true)
     if (admin) {
       const { data } = await supabase.from('library_requests').select('*').order('created_at', { ascending: false })
       setRequests(data || [])
-      const { data: docs } = await supabase.storage.from('platform-files').list('library/', { limit: 100 })
-      setLibraryDocs((docs || []).filter(f => f.id && f.name !== '.keep'))
+      await loadFolders()
     } else {
       const { data } = await supabase.from('library_requests').select('*').eq('email', user?.email).maybeSingle()
       setMyRequest(data || null)
       if (data?.access_granted) {
-        const { data: docs } = await supabase.storage.from('platform-files').list('library/', { limit: 100 })
-        setLibraryDocs((docs || []).filter(f => f.id && f.name !== '.keep'))
+        await loadFolders()
       }
     }
     setLoading(false)
   }
 
   useEffect(() => { if (user) load() }, [user, admin])
+
+  useEffect(() => {
+    if (activeFolder !== null) loadDocs(activeFolder)
+    else setDocs([])
+  }, [activeFolder])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -49,98 +74,140 @@ export default function Library({ user }) {
     setSubmitting(false)
   }
 
-  const grantAccess = async (id) => {
-    const { error } = await supabase.from('library_requests').update({ access_granted: true, rejected: false, reject_reason: null }).eq('id', id)
-    if (error) showToast(error.message, 'error')
-    else { showToast('Accès accordé ✓'); load() }
+  const grantAccess = async (r) => {
+    const { error } = await supabase.from('library_requests').update({ access_granted: true, rejected: false, reject_reason: null }).eq('id', r.id)
+    if (error) { showToast(error.message, 'error'); return }
+    if (r.user_id) await createNotification(r.user_id, 'LIBRARY_ACCORDÉ', 'Votre accès à la Motul Library a été accordé. Connectez-vous pour accéder aux ressources.')
+    showToast('Accès accordé ✓'); load()
   }
 
   const confirmReject = async () => {
     const { error } = await supabase.from('library_requests').update({ access_granted: false, rejected: true, reject_reason: rejectReason || 'Demande non retenue' }).eq('id', rejectTarget.id)
-    if (error) showToast(error.message, 'error')
-    else { showToast('Demande refusée'); setRejectTarget(null); setRejectReason(''); load() }
+    if (error) { showToast(error.message, 'error'); return }
+    if (rejectTarget.user_id) await createNotification(rejectTarget.user_id, 'LIBRARY_REFUSÉ', `Votre demande d'accès à la Motul Library a été refusée. Motif : ${rejectReason || 'Demande non retenue'}`)
+    showToast('Demande refusée'); setRejectTarget(null); setRejectReason(''); load()
   }
 
-  const handleUploadDocs = async (e) => {
+  const createFolder = async () => {
+    if (!newFolder.trim()) return
+    const { error } = await supabase.storage.from(BUCKET).upload(`${BASE}/${newFolder.trim()}/.keep`, new Blob(['']))
+    if (error) showToast(error.message, 'error')
+    else { showToast('Dossier créé'); setNewFolder(''); setShowNewFolder(false); loadFolders() }
+  }
+
+  const handleUpload = async (e) => {
     const files = Array.from(e.target.files)
     if (!files.length) return
     setUploading(true)
+    const folder = activeFolder || ''
+    const path = folder ? `${BASE}/${folder}/` : `${BASE}/`
     for (const file of files) {
-      const path = `library/${Date.now()}_${file.name}`
-      const { error } = await supabase.storage.from('platform-files').upload(path, file)
+      const { error } = await supabase.storage.from(BUCKET).upload(`${path}${Date.now()}_${file.name}`, file)
       if (error) showToast(`Erreur: ${file.name}`, 'error')
     }
-    showToast(`${files.length} document(s) ajouté(s)`)
-    load(); setUploading(false); e.target.value = ''
+    showToast(`${files.length} fichier(s) ajouté(s)`)
+    loadDocs(activeFolder); setUploading(false); e.target.value = ''
   }
 
   const deleteDoc = async (name) => {
-    const { error } = await supabase.storage.from('platform-files').remove([`library/${name}`])
+    const folder = activeFolder || ''
+    const path = folder ? `${BASE}/${folder}/${name}` : `${BASE}/${name}`
+    const { error } = await supabase.storage.from(BUCKET).remove([path])
     if (error) showToast(error.message, 'error')
-    else { showToast('Document supprimé'); load() }
+    else { showToast('Document supprimé'); loadDocs(activeFolder) }
   }
 
-  const downloadDoc = async (name) => {
-    const { data, error } = await supabase.storage.from('platform-files').download(`library/${name}`)
-    if (error) { showToast(error.message, 'error'); return }
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(data)
-    a.download = name.replace(/^\d+_/, '')
-    a.click()
+  const getSignedUrl = async (name) => {
+    const folder = activeFolder || ''
+    const path = folder ? `${BASE}/${folder}/${name}` : `${BASE}/${name}`
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600)
+    if (error) { showToast(error.message, 'error'); return null }
+    return data.signedUrl
   }
+
+  const openPreview = async (f) => {
+    const ext = f.name.split('.').pop().toLowerCase()
+    const url = await getSignedUrl(f.name)
+    if (!url) return
+    if (IMG_EXTS.includes(ext) || PDF_EXTS.includes(ext)) {
+      setPreview({ url, name: f.name.replace(/^\d+_/, ''), type: IMG_EXTS.includes(ext) ? 'image' : 'pdf' })
+    } else {
+      const a = document.createElement('a'); a.href = url; a.download = f.name.replace(/^\d+_/, ''); a.click()
+    }
+  }
+
+  const copyLink = async (name) => {
+    const url = await getSignedUrl(name)
+    if (url) { navigator.clipboard.writeText(url); showToast('Lien copié (valable 1h)') }
+  }
+
+  const getExt = (name) => name.split('.').pop().toLowerCase()
+  const getIcon = (name) => EXT_ICONS[getExt(name)] || '📎'
 
   // ===== VUE ADMIN =====
   if (admin) return (
     <Layout user={user}>
       <div className="page-header">
-        <div>
-          <div className="page-title">Motul Library</div>
-          <div className="page-sub">Gestion des accès · Documents · Notifications → f.hadjnassar@ma.motul.com · M.FilaliAnsary@ma.motul.com</div>
-        </div>
+        <div><div className="page-title">Motul Library</div><div className="page-sub">Gestion des accès · Bibliothèque de contenu</div></div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            {uploading ? 'Upload...' : '⬆ Ajouter documents'}
-          </button>
-          <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleUploadDocs} />
+          {activeFolder !== null && (
+            <>
+              <button className="btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                {uploading ? 'Upload...' : '⬆ Ajouter fichiers'}
+              </button>
+              <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleUpload} />
+            </>
+          )}
+          <button className="btn" onClick={() => setShowNewFolder(true)}>+ Dossier</button>
           <button className="btn btn-primary" onClick={() => {
-            const rows = ['Nom,Prénom,Email,Entreprise,Poste,Statut,Date', ...requests.map(r => `${r.nom},${r.prenom},${r.email},${r.entreprise},${r.poste},${r.access_granted ? 'Accordé' : r.rejected ? 'Refusé' : 'En attente'},${new Date(r.created_at).toLocaleDateString('fr-FR')}`)].join('\n')
+            const rows = ['Nom,Email,Entreprise,Statut,Date', ...requests.map(r => `${r.nom} ${r.prenom},${r.email},${r.entreprise},${r.access_granted ? 'Accordé' : r.rejected ? 'Refusé' : 'En attente'},${new Date(r.created_at).toLocaleDateString('fr-FR')}`)].join('\n')
             const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([rows], { type: 'text/csv' })); a.download = 'library.csv'; a.click()
           }}>Export CSV ↓</button>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 10, marginBottom: 20 }}>
-        <div className="stat-card"><div className="stat-label">Total demandes</div><div className="stat-val">{requests.length}</div></div>
-        <div className="stat-card"><div className="stat-label">Accordés</div><div className="stat-val" style={{ color: '#16a34a' }}>{requests.filter(r => r.access_granted).length}</div></div>
-        <div className="stat-card"><div className="stat-label">En attente</div><div className="stat-val" style={{ color: '#D97706' }}>{requests.filter(r => !r.access_granted && !r.rejected).length}</div></div>
-        <div className="stat-card"><div className="stat-label">Documents</div><div className="stat-val" style={{ color: '#2A5FA8' }}>{libraryDocs.length}</div></div>
-      </div>
+      {showNewFolder && (
+        <div className="card card-pad" style={{ marginBottom: 16, maxWidth: 400 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Nouveau dossier</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input value={newFolder} onChange={e => setNewFolder(e.target.value)} placeholder="Ex: Catalogues 2025" autoFocus onKeyDown={e => e.key === 'Enter' && createFolder()} />
+            <button className="btn btn-primary" onClick={createFolder}>Créer</button>
+            <button className="btn" onClick={() => setShowNewFolder(false)}>✕</button>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        {/* Demandes */}
         <div>
           <div className="section-title">Demandes d'accès</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 12 }}>
+            <div className="stat-card"><div className="stat-label">Total</div><div className="stat-val">{requests.length}</div></div>
+            <div className="stat-card"><div className="stat-label">Accordés</div><div className="stat-val" style={{ color: '#16a34a' }}>{requests.filter(r => r.access_granted).length}</div></div>
+            <div className="stat-card"><div className="stat-label">En attente</div><div className="stat-val" style={{ color: '#D97706' }}>{requests.filter(r => !r.access_granted && !r.rejected).length}</div></div>
+          </div>
           <div className="table-card">
-            <div className="table-head" style={{ gridTemplateColumns: '2fr 1fr 120px' }}>
+            <div className="table-head" style={{ gridTemplateColumns: '2fr 1fr 130px' }}>
               {['Demandeur', 'Date', 'Action'].map(h => <span key={h} className="th">{h}</span>)}
             </div>
             {loading ? <div className="empty-state">Chargement...</div>
               : requests.length === 0 ? <div className="empty-state">Aucune demande.</div>
               : requests.map(r => (
-                <div key={r.id} className="table-row" style={{ gridTemplateColumns: '2fr 1fr 120px' }}>
+                <div key={r.id} className="table-row" style={{ gridTemplateColumns: '2fr 1fr 130px' }}>
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 500 }}>{r.nom} {r.prenom}</div>
                     <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>{r.email}</div>
-                    <div style={{ fontSize: 10, color: '#6b7280' }}>{r.entreprise} · {r.poste}</div>
-                    {r.rejected && r.reject_reason && <div style={{ fontSize: 10, color: '#dc2626', marginTop: 2 }}>Refusé : {r.reject_reason}</div>}
+                    <div style={{ fontSize: 10, color: '#6b7280' }}>{r.entreprise}</div>
+                    {r.rejected && r.reject_reason && <div style={{ fontSize: 10, color: '#dc2626' }}>↳ {r.reject_reason}</div>}
                   </div>
                   <span className="td" style={{ fontFamily: 'monospace', fontSize: 11 }}>{new Date(r.created_at).toLocaleDateString('fr-FR')}</span>
                   <div style={{ display: 'flex', gap: 4 }}>
                     {r.access_granted
                       ? <span style={{ fontSize: 10, background: '#dcfce7', color: '#166534', borderRadius: 8, padding: '2px 8px', fontFamily: 'monospace' }}>✓ Accordé</span>
                       : r.rejected
-                        ? <button className="btn" style={{ fontSize: 10, padding: '2px 7px' }} onClick={() => grantAccess(r.id)}>Reconsidérer</button>
+                        ? <button className="btn" style={{ fontSize: 10, padding: '2px 7px' }} onClick={() => grantAccess(r)}>Reconsidérer</button>
                         : <>
-                            <button className="btn btn-success" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => grantAccess(r.id)}>✓ Accorder</button>
+                            <button className="btn btn-success" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => grantAccess(r)}>✓</button>
                             <button className="btn btn-danger" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => { setRejectTarget(r); setRejectReason('') }}>✕</button>
                           </>
                     }
@@ -151,29 +218,47 @@ export default function Library({ user }) {
           </div>
         </div>
 
+        {/* Bibliothèque */}
         <div>
-          <div className="section-title">Documents de la Library</div>
-          {libraryDocs.length === 0
-            ? <div className="empty-state" style={{ padding: 28, background: '#f9fafb', borderRadius: 12, border: '0.5px solid #e5e7eb', textAlign: 'center' }}>
-                <div style={{ fontSize: 32, marginBottom: 8 }}>📚</div>
-                <div style={{ fontSize: 13, color: '#9ca3af' }}>Aucun document. Uploadez des fichiers pour les rendre accessibles aux partenaires.</div>
-              </div>
-            : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {libraryDocs.map(f => (
-                  <div key={f.name} className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 20, flexShrink: 0 }}>📄</span>
-                    <div style={{ flex: 1, overflow: 'hidden' }}>
-                      <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name.replace(/^\d+_/, '')}</div>
-                      <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>{f.name.split('.').pop().toUpperCase()}</div>
+          <div className="section-title">Bibliothèque de contenu</div>
+          {/* Dossiers */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            <button className="btn" onClick={() => setActiveFolder(null)} style={activeFolder === null ? { background: '#FFF0ED', color: '#CC2200', borderColor: '#CC2200' } : {}}>
+              📁 Racine
+            </button>
+            {folders.map(f => (
+              <button key={f.name} className="btn" onClick={() => setActiveFolder(f.name)} style={activeFolder === f.name ? { background: '#FFF0ED', color: '#CC2200', borderColor: '#CC2200' } : {}}>
+                📁 {f.name}
+              </button>
+            ))}
+          </div>
+          {/* Fichiers */}
+          {activeFolder !== null ? (
+            docs.length === 0
+              ? <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#9ca3af', background: '#f9fafb', borderRadius: 10, border: '0.5px dashed #e5e7eb' }}>
+                  Dossier vide · Uploadez des fichiers
+                </div>
+              : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {docs.map(f => (
+                    <div key={f.name} className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 20, flexShrink: 0 }}>{getIcon(f.name)}</span>
+                      <div style={{ flex: 1, overflow: 'hidden' }}>
+                        <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name.replace(/^\d+_/, '')}</div>
+                        <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>{f.name.split('.').pop().toUpperCase()}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                        <button className="btn" style={{ width: 26, height: 26, padding: 0, fontSize: 12 }} onClick={() => openPreview(f)} title="Aperçu/Télécharger">👁</button>
+                        <button className="btn" style={{ width: 26, height: 26, padding: 0, fontSize: 12 }} onClick={() => copyLink(f.name)} title="Copier lien">⊹</button>
+                        <button className="btn" style={{ width: 26, height: 26, padding: 0, fontSize: 12, color: '#dc2626' }} onClick={() => deleteDoc(f.name)} title="Supprimer">✕</button>
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                      <button className="btn" style={{ width: 26, height: 26, padding: 0, fontSize: 12 }} onClick={() => downloadDoc(f.name)}>↓</button>
-                      <button className="btn" style={{ width: 26, height: 26, padding: 0, fontSize: 12, color: '#dc2626' }} onClick={() => deleteDoc(f.name)}>✕</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-          }
+                  ))}
+                </div>
+          ) : (
+            <div style={{ padding: 16, textAlign: 'center', fontSize: 12, color: '#9ca3af', background: '#f9fafb', borderRadius: 10 }}>
+              Sélectionnez un dossier pour voir son contenu ou créez-en un nouveau.
+            </div>
+          )}
         </div>
       </div>
 
@@ -183,14 +268,30 @@ export default function Library({ user }) {
             <div className="modal-title">Refuser la demande</div>
             <div className="modal-sub">{rejectTarget.nom} {rejectTarget.prenom} — {rejectTarget.email}</div>
             <label className="form-label">Motif du refus</label>
-            <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Expliquez la raison du refus (optionnel)..." rows={3} style={{ marginBottom: 4 }} />
+            <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Motif du refus (optionnel)..." rows={3} style={{ marginBottom: 4 }} />
             <div className="modal-footer">
               <button className="btn" onClick={() => setRejectTarget(null)}>Annuler</button>
-              <button className="btn btn-danger" onClick={confirmReject}>Refuser la demande</button>
+              <button className="btn btn-danger" onClick={confirmReject}>Refuser</button>
             </div>
           </div>
         </div>
       )}
+
+      {preview && (
+        <div className="modal-overlay" onClick={() => setPreview(null)}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 20, maxWidth: '80vw', maxHeight: '80vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>{preview.name}</div>
+              <button onClick={() => setPreview(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af' }}>✕</button>
+            </div>
+            {preview.type === 'image'
+              ? <img src={preview.url} alt={preview.name} style={{ maxWidth: '100%', maxHeight: '60vh', borderRadius: 8 }} />
+              : <iframe src={preview.url} style={{ width: '70vw', height: '60vh', border: 'none', borderRadius: 8 }} title={preview.name} />
+            }
+          </div>
+        </div>
+      )}
+
       <Toast toast={toast} />
     </Layout>
   )
@@ -201,63 +302,94 @@ export default function Library({ user }) {
       <div className="page-header">
         <div><div className="page-title">Motul Library</div><div className="page-sub">Ressources et documents Motul Africa</div></div>
       </div>
-      <div style={{ background: '#f0fdf4', border: '0.5px solid #86efac', borderRadius: 10, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-        <span style={{ fontSize: 20 }}>✅</span>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: '#166534' }}>Vous avez accès à la Motul Library</div>
-          <div style={{ fontSize: 12, color: '#16a34a' }}>Cliquez sur un document pour le télécharger</div>
-        </div>
+      <div style={{ background: '#f0fdf4', border: '0.5px solid #86efac', borderRadius: 10, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        <span>✅</span>
+        <div style={{ fontSize: 13, fontWeight: 500, color: '#166534' }}>Vous avez accès à la Motul Library</div>
       </div>
+
+      {/* Navigation dossiers */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+        <button className="btn" onClick={() => setActiveFolder(null)} style={activeFolder === null ? { background: '#FFF0ED', color: '#CC2200', borderColor: '#CC2200' } : {}}>
+          📁 Tous les documents
+        </button>
+        {folders.map(f => (
+          <button key={f.name} className="btn" onClick={() => setActiveFolder(f.name)} style={activeFolder === f.name ? { background: '#FFF0ED', color: '#CC2200', borderColor: '#CC2200' } : {}}>
+            📁 {f.name}
+          </button>
+        ))}
+      </div>
+
       {loading ? <div className="empty-state">Chargement...</div>
-        : libraryDocs.length === 0
-          ? <div className="empty-state"><div className="empty-state-icon">📚</div>Aucun document disponible pour le moment.</div>
-          : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px,1fr))', gap: 10 }}>
-              {libraryDocs.map(f => (
-                <div key={f.name} className="card" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', transition: 'border-color .15s' }}
-                  onClick={() => downloadDoc(f.name)}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = '#CC2200'}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = '#e5e7eb'}>
-                  <span style={{ fontSize: 26, flexShrink: 0 }}>📄</span>
-                  <div style={{ flex: 1, overflow: 'hidden' }}>
-                    <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name.replace(/^\d+_/, '')}</div>
-                    <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>Télécharger ↓</div>
+        : docs.length === 0 && activeFolder !== null
+          ? <div className="empty-state"><div className="empty-state-icon">📂</div>Ce dossier est vide.</div>
+          : activeFolder === null
+            ? <div style={{ padding: 20, textAlign: 'center', fontSize: 13, color: '#9ca3af' }}>Sélectionnez un dossier pour voir les documents.</div>
+            : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px,1fr))', gap: 10 }}>
+                {docs.map(f => (
+                  <div key={f.name} className="card" style={{ padding: '14px 16px', cursor: 'pointer', transition: 'border-color .15s' }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = '#CC2200'}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = '#e5e7eb'}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                      <span style={{ fontSize: 24 }}>{getIcon(f.name)}</span>
+                      <div style={{ flex: 1, overflow: 'hidden' }}>
+                        <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name.replace(/^\d+_/, '')}</div>
+                        <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>{f.name.split('.').pop().toUpperCase()}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn btn-primary" style={{ flex: 1, fontSize: 11, padding: '5px', justifyContent: 'center' }} onClick={() => openPreview(f)}>
+                        {IMG_EXTS.includes(getExt(f.name)) || PDF_EXTS.includes(getExt(f.name)) ? '👁 Aperçu' : '↓ Télécharger'}
+                      </button>
+                      <button className="btn" style={{ fontSize: 11, padding: '5px 10px' }} onClick={() => copyLink(f.name)} title="Copier lien">⊹</button>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
       }
+
+      {preview && (
+        <div className="modal-overlay" onClick={() => setPreview(null)}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 20, maxWidth: '80vw', maxHeight: '80vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>{preview.name}</div>
+              <button onClick={() => setPreview(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af' }}>✕</button>
+            </div>
+            {preview.type === 'image'
+              ? <img src={preview.url} alt={preview.name} style={{ maxWidth: '100%', maxHeight: '60vh', borderRadius: 8 }} />
+              : <iframe src={preview.url} style={{ width: '70vw', height: '60vh', border: 'none', borderRadius: 8 }} title={preview.name} />
+            }
+          </div>
+        </div>
+      )}
       <Toast toast={toast} />
     </Layout>
   )
 
-  // ===== VUE PARTENAIRE — REFUSÉ =====
   if (myRequest?.rejected) return (
     <Layout user={user}>
       <div className="page-header"><div><div className="page-title">Motul Library</div></div></div>
-      <div style={{ maxWidth: 500, margin: '40px auto', textAlign: 'center' }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>❌</div>
-        <div style={{ fontSize: 16, fontWeight: 600, color: '#374151', marginBottom: 8 }}>Demande refusée</div>
+      <div style={{ maxWidth: 480, margin: '40px auto', textAlign: 'center' }}>
+        <div style={{ fontSize: 44, marginBottom: 14 }}>❌</div>
+        <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Demande refusée</div>
         {myRequest.reject_reason && <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 12, padding: '10px 16px', background: '#fee2e2', borderRadius: 8 }}>Motif : {myRequest.reject_reason}</div>}
-        <div style={{ fontSize: 13, color: '#6b7280' }}>Pour plus d'informations, contactez votre responsable Motul Africa.</div>
+        <div style={{ fontSize: 13, color: '#9ca3af' }}>Contactez votre responsable Motul Africa pour plus d'informations.</div>
       </div>
       <Toast toast={toast} />
     </Layout>
   )
 
-  // ===== VUE PARTENAIRE — EN ATTENTE =====
   if (myRequest && !myRequest.access_granted && !myRequest.rejected) return (
     <Layout user={user}>
       <div className="page-header"><div><div className="page-title">Motul Library</div></div></div>
-      <div style={{ maxWidth: 500, margin: '40px auto', textAlign: 'center' }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>⏳</div>
-        <div style={{ fontSize: 16, fontWeight: 600, color: '#374151', marginBottom: 8 }}>Demande en cours de traitement</div>
-        <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.6 }}>Votre demande a bien été reçue. Vous serez notifié une fois l'accès accordé.</div>
+      <div style={{ maxWidth: 480, margin: '40px auto', textAlign: 'center' }}>
+        <div style={{ fontSize: 44, marginBottom: 14 }}>⏳</div>
+        <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Demande en cours de traitement</div>
+        <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.6 }}>Votre demande a été reçue. Vous recevrez une notification une fois l'accès accordé.</div>
       </div>
       <Toast toast={toast} />
     </Layout>
   )
 
-  // ===== VUE PARTENAIRE — FORMULAIRE =====
   return (
     <Layout user={user}>
       <div className="page-header">

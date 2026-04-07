@@ -4,14 +4,15 @@ import { ConfirmModal } from '../components/ConfirmModal'
 import { useToast, Toast } from '../lib/useToast.jsx'
 import { supabase, isAdmin } from '../lib/supabase'
 
-const EMPTY_FORM = { title: '', content: '', visible: true }
+const EMPTY = { title: '', content: '', visible: true }
 
 export default function News({ user }) {
   const [news, setNews] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState(EMPTY_FORM)
+  const [form, setForm] = useState(EMPTY)
   const [imageFile, setImageFile] = useState(null)
+  const [imagePreview, setImagePreview] = useState(null)
   const [editId, setEditId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
@@ -20,8 +21,8 @@ export default function News({ user }) {
 
   const load = async () => {
     setLoading(true)
-    const query = supabase.from('news').select('*').order('created_at', { ascending: false })
-    if (!admin) query.eq('visible', true)
+    let query = supabase.from('news').select('*').order('created_at', { ascending: false })
+    if (!admin) query = query.eq('visible', true)
     const { data, error } = await query
     if (error) showToast(error.message, 'error')
     else setNews(data || [])
@@ -30,8 +31,19 @@ export default function News({ user }) {
 
   useEffect(() => { load() }, [admin])
 
-  const openNew = () => { setForm(EMPTY_FORM); setEditId(null); setImageFile(null); setShowForm(true) }
-  const openEdit = (item) => { setForm({ title: item.title, content: item.content || '', visible: item.visible }); setEditId(item.id); setImageFile(null); setShowForm(true) }
+  const openNew = () => { setForm(EMPTY); setEditId(null); setImageFile(null); setImagePreview(null); setShowForm(true) }
+
+  const openEdit = (item) => {
+    setForm({ title: item.title, content: item.content || '', visible: item.visible })
+    setEditId(item.id); setImageFile(null); setImagePreview(item.image_url || null); setShowForm(true)
+  }
+
+  const handleImageChange = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setImageFile(file)
+    setImagePreview(URL.createObjectURL(file))
+  }
 
   const handleSave = async (e) => {
     e.preventDefault()
@@ -50,14 +62,14 @@ export default function News({ user }) {
 
     if (editId) {
       const { error } = await supabase.from('news').update(payload).eq('id', editId)
-      if (error) showToast(error.message, 'error')
-      else { showToast('Article mis à jour'); setShowForm(false); load() }
+      if (error) { showToast(error.message, 'error'); setSaving(false); return }
+      showToast('Article mis à jour')
     } else {
       const { error } = await supabase.from('news').insert(payload)
-      if (error) showToast(error.message, 'error')
-      else { showToast('Article publié'); setShowForm(false); load() }
+      if (error) { showToast(error.message, 'error'); setSaving(false); return }
+      showToast('Article publié')
     }
-    setSaving(false)
+    setShowForm(false); setSaving(false); load()
   }
 
   const toggleVisible = async (item) => {
@@ -78,14 +90,13 @@ export default function News({ user }) {
       <div className="page-header">
         <div>
           <div className="page-title">Actualités</div>
-          <div className="page-sub">{admin ? `Back-office éditorial · ${news.filter(n => n.visible).length} visible(s)` : 'Dernières nouvelles Motul Africa'}</div>
+          <div className="page-sub">{admin ? `Back-office · ${news.filter(n => n.visible).length} article(s) visible(s)` : 'Dernières nouvelles Motul Africa'}</div>
         </div>
         {admin && <button className="btn btn-primary" onClick={openNew}>+ Nouvel article</button>}
       </div>
 
-      {/* Formulaire admin */}
       {admin && showForm && (
-        <div className="card card-pad" style={{ marginBottom: 20, maxWidth: 580 }}>
+        <div className="card card-pad" style={{ marginBottom: 20, maxWidth: 600 }}>
           <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>{editId ? 'Modifier l\'article' : 'Nouvel article'}</div>
           <form onSubmit={handleSave}>
             <div className="form-grid">
@@ -98,14 +109,19 @@ export default function News({ user }) {
                 <textarea value={form.content} onChange={e => setForm(p => ({ ...p, content: e.target.value }))} placeholder="Contenu de l'article..." rows={4} style={{ resize: 'vertical' }} />
               </div>
               <div className="form-full">
-                <label className="form-label">Image <span style={{ fontSize: 10, color: '#9ca3af', fontWeight: 400 }}>· JPG, PNG recommandé</span></label>
-                <input type="file" accept="image/*" onChange={e => setImageFile(e.target.files[0])} />
-                {editId && news.find(n => n.id === editId)?.image_url && !imageFile && (
-                  <div style={{ marginTop: 6, fontSize: 11, color: '#9ca3af' }}>Image actuelle conservée si aucune nouvelle image sélectionnée</div>
+                <label className="form-label">Image</label>
+                <input type="file" accept="image/*" onChange={handleImageChange} />
+                {imagePreview && (
+                  <div style={{ marginTop: 10 }}>
+                    <img src={imagePreview} alt="Aperçu" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, objectFit: 'cover' }} />
+                    <button type="button" onClick={() => { setImageFile(null); setImagePreview(editId ? news.find(n => n.id === editId)?.image_url : null) }} style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                      ✕ Retirer l'image
+                    </button>
+                  </div>
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button type="button" className={`toggle ${form.visible ? 'on' : ''}`} onClick={() => setForm(p => ({ ...p, visible: !p.visible })) } />
+                <button type="button" className={`toggle ${form.visible ? 'on' : ''}`} onClick={() => setForm(p => ({ ...p, visible: !p.visible }))} />
                 <span style={{ fontSize: 12, color: '#6b7280' }}>{form.visible ? 'Visible' : 'Masqué'}</span>
               </div>
             </div>
@@ -118,41 +134,35 @@ export default function News({ user }) {
       )}
 
       {loading ? <div className="empty-state">Chargement...</div>
-        : news.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state-icon">📰</div>
-            {admin ? 'Aucun article. Créez votre premier article.' : 'Aucune actualité disponible.'}
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {news.map(n => (
-              <div key={n.id} className="card" style={{ padding: '16px 20px', display: 'flex', gap: 16, alignItems: 'flex-start', opacity: admin && !n.visible ? .6 : 1 }}>
-                {n.image_url
-                  ? <img src={n.image_url} alt={n.title} style={{ width: 72, height: 72, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
-                  : <div style={{ width: 72, height: 72, borderRadius: 10, background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, flexShrink: 0 }}>📰</div>
-                }
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 4 }}>{n.title}</div>
-                  <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 6 }}>{new Date(n.created_at).toLocaleDateString('fr-FR')}</div>
-                  {n.content && <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.6 }}>{n.content}</div>}
-                  {admin && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <button className={`toggle ${n.visible ? 'on' : ''}`} onClick={() => toggleVisible(n)} />
-                        <span style={{ fontSize: 11, color: '#6b7280' }}>{n.visible ? 'Visible' : 'Masqué'}</span>
-                      </div>
-                      <button className="btn" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => openEdit(n)}>Modifier</button>
-                      <button className="btn" style={{ fontSize: 11, padding: '3px 10px', color: '#dc2626', borderColor: '#fecaca' }} onClick={() => setDeleteTarget(n)}>Supprimer</button>
-                    </div>
+        : news.length === 0
+          ? <div className="empty-state"><div className="empty-state-icon">📰</div>{admin ? 'Aucun article. Créez votre premier article.' : 'Aucune actualité disponible.'}</div>
+          : <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {news.map(n => (
+                <div key={n.id} className="card" style={{ overflow: 'hidden', opacity: admin && !n.visible ? .6 : 1 }}>
+                  {n.image_url && (
+                    <img src={n.image_url} alt={n.title} style={{ width: '100%', height: 180, objectFit: 'cover', display: 'block' }} />
                   )}
+                  <div style={{ padding: '16px 20px' }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{n.title}</div>
+                    <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 8 }}>{new Date(n.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
+                    {n.content && <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.6 }}>{n.content}</div>}
+                    {admin && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, paddingTop: 12, borderTop: '0.5px solid #f3f4f6' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <button className={`toggle ${n.visible ? 'on' : ''}`} onClick={() => toggleVisible(n)} />
+                          <span style={{ fontSize: 11, color: '#6b7280' }}>{n.visible ? 'Visible' : 'Masqué'}</span>
+                        </div>
+                        <button className="btn" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => openEdit(n)}>Modifier</button>
+                        <button className="btn" style={{ fontSize: 11, padding: '3px 10px', color: '#dc2626', borderColor: '#fecaca' }} onClick={() => setDeleteTarget(n)}>Supprimer</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )
+              ))}
+            </div>
       }
 
-      <ConfirmModal open={!!deleteTarget} title="Supprimer l'article" message={`Confirmez-vous la suppression de "${deleteTarget?.title}" ? Cette action est irréversible.`} confirmLabel="Supprimer" danger onConfirm={confirmDelete} onCancel={() => setDeleteTarget(null)} />
+      <ConfirmModal open={!!deleteTarget} title="Supprimer l'article" message={`Confirmez-vous la suppression de "${deleteTarget?.title}" ?`} confirmLabel="Supprimer" danger onConfirm={confirmDelete} onCancel={() => setDeleteTarget(null)} />
       <Toast toast={toast} />
     </Layout>
   )
