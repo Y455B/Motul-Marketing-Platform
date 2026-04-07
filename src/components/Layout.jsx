@@ -108,7 +108,7 @@ export default function Layout({ children, user }) {
           {/* Cloche */}
           <div style={{ position: 'relative' }}>
             <button
-              onClick={() => { setShowNotifs(v => !v); if (!showNotifs && unread > 0) markAllRead() }}
+              onClick={(e) => { e.stopPropagation(); setShowNotifs(v => !v); if (!showNotifs && unread > 0) markAllRead() }}
               style={{ background: 'none', border: '0.5px solid #e5e7eb', borderRadius: 6, padding: '5px 7px', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center' }}
             >
               🔔
@@ -118,6 +118,8 @@ export default function Layout({ children, user }) {
             </button>
 
             {showNotifs && (
+              <>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 49 }} onClick={() => setShowNotifs(false)} />
               <div style={{ position: 'absolute', right: 0, top: 40, width: 320, background: '#fff', border: '0.5px solid #d1d5db', borderRadius: 12, zIndex: 50, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,.12)' }}>
                 <div style={{ padding: '12px 16px', borderBottom: '0.5px solid #f3f4f6', fontSize: 13, fontWeight: 500, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>Mes notifications</span>
@@ -141,6 +143,7 @@ export default function Layout({ children, user }) {
                   </div>
                 )}
               </div>
+              </>
             )}
           </div>
 
@@ -177,7 +180,7 @@ export default function Layout({ children, user }) {
             )
           })}
         </aside>
-        <main className="main" onClick={() => setShowNotifs(false)}>{children}</main>
+        <main className="main">{children}</main>
       </div>
     </div>
   )
