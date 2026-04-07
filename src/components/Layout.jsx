@@ -3,27 +3,37 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { supabase, isAdmin } from '../lib/supabase'
 
 const NAV_USER = [
-  { label: 'Accueil', path: '/home', icon: '⌂' },
-  { label: 'Actions Marketing', path: '/dmp', icon: '◈' },
+  { label: 'Accueil', path: '/home', icon: '🏠' },
+  { label: 'Actions Marketing', path: '/dmp', icon: '📋' },
   { label: 'Motul Library', path: '/library', icon: '📚' },
   { label: 'Actualités', path: '/news', icon: '📰' },
-  { label: 'Mon compte', path: '/account', icon: '◎' },
+  { label: 'Mon compte', path: '/account', icon: '👤' },
 ]
 
 const NAV_ADMIN = [
-  { label: 'Accueil', path: '/home', icon: '⌂' },
+  { label: 'Accueil', path: '/home', icon: '🏠' },
   { divider: true, label: 'Modules' },
-  { label: 'Actions Marketing', path: '/dmp', icon: '◈' },
+  { label: 'Actions Marketing', path: '/dmp', icon: '📋' },
   { label: 'Motul Library', path: '/library', icon: '📚' },
   { label: 'Actualités', path: '/news', icon: '📰' },
   { divider: true, label: 'Back-office' },
-  { label: 'Sliders', path: '/sliders', icon: '▤' },
-  { label: 'Newsletter', path: '/newsletter', icon: '✉' },
-  { label: 'Utilisateurs', path: '/users', icon: '◉' },
-  { label: 'Entreprises', path: '/companies', icon: '⊡' },
+  { label: 'Sliders', path: '/sliders', icon: '🖼️' },
+  { label: 'Newsletter', path: '/newsletter', icon: '✉️' },
+  { label: 'Utilisateurs', path: '/users', icon: '👥' },
+  { label: 'Entreprises', path: '/companies', icon: '🏢' },
   { divider: true, label: 'Compte' },
-  { label: 'Mon compte', path: '/account', icon: '◎' },
+  { label: 'Mon compte', path: '/account', icon: '👤' },
 ]
+
+const TYPE_ICONS = {
+  'BIENVENUE': '👋',
+  'DMP_SOUMISE': '📋',
+  'DMP_VALIDÉE': '✅',
+  'DMP_REJETÉE': '❌',
+  'LIBRARY_ACCORDÉ': '📚',
+  'LIBRARY_REFUSÉ': '🚫',
+  'ANNONCE': '📢',
+}
 
 export default function Layout({ children, user }) {
   const location = useLocation()
@@ -44,7 +54,7 @@ export default function Layout({ children, user }) {
     if (!user) return
     loadNotifs()
     const channel = supabase
-      .channel('notifications')
+      .channel('notifications-' + user.id)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
@@ -75,16 +85,6 @@ export default function Layout({ children, user }) {
     navigate('/login')
   }
 
-  const TYPE_ICONS = {
-    'BIENVENUE': '👋',
-    'DMP_SOUMISE': '📋',
-    'DMP_VALIDÉE': '✅',
-    'DMP_REJETÉE': '❌',
-    'LIBRARY_ACCORDÉ': '📚',
-    'LIBRARY_REFUSÉ': '🚫',
-    'ANNONCE': '📢',
-  }
-
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -98,16 +98,18 @@ export default function Layout({ children, user }) {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
           {/* Indicateur BDD */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#9ca3af' }}>
-            <span className={`db-dot ${dbOnline === null ? 'checking' : dbOnline ? 'online' : 'offline'}`} />
-            <span style={{ fontFamily: 'monospace', fontSize: 10 }}>{dbOnline === null ? '...' : dbOnline ? 'BDD ok' : 'BDD hors ligne'}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', display: 'inline-block', background: dbOnline === null ? '#d1d5db' : dbOnline ? '#16a34a' : '#dc2626', boxShadow: dbOnline ? '0 0 0 2px #dcfce7' : undefined }} />
+            <span style={{ fontSize: 11, color: '#6b7280', fontFamily: 'monospace' }}>
+              {dbOnline === null ? 'Connexion...' : dbOnline ? 'Connecté à la BDD' : 'BDD hors ligne'}
+            </span>
           </div>
 
           {/* Cloche */}
           <div style={{ position: 'relative' }}>
             <button
               onClick={() => { setShowNotifs(v => !v); if (!showNotifs && unread > 0) markAllRead() }}
-              style={{ background: 'none', border: '0.5px solid #e5e7eb', borderRadius: 6, padding: '5px 7px', cursor: 'pointer', fontSize: 14, position: 'relative', display: 'flex', alignItems: 'center' }}
+              style={{ background: 'none', border: '0.5px solid #e5e7eb', borderRadius: 6, padding: '5px 7px', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center' }}
             >
               🔔
               {unread > 0 && (
@@ -119,14 +121,14 @@ export default function Layout({ children, user }) {
               <div style={{ position: 'absolute', right: 0, top: 40, width: 320, background: '#fff', border: '0.5px solid #d1d5db', borderRadius: 12, zIndex: 50, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,.12)' }}>
                 <div style={{ padding: '12px 16px', borderBottom: '0.5px solid #f3f4f6', fontSize: 13, fontWeight: 500, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>Mes notifications</span>
-                  {unread > 0 && <span style={{ fontSize: 10, color: '#CC2200', cursor: 'pointer' }} onClick={markAllRead}>Tout marquer lu</span>}
+                  {unread > 0 && <span style={{ fontSize: 11, color: '#CC2200', cursor: 'pointer' }} onClick={markAllRead}>Tout marquer lu</span>}
                 </div>
                 {notifs.length === 0 ? (
-                  <div style={{ padding: '20px 16px', textAlign: 'center', fontSize: 12, color: '#9ca3af' }}>Aucune notification</div>
+                  <div style={{ padding: '24px 16px', textAlign: 'center', fontSize: 12, color: '#9ca3af' }}>Aucune notification</div>
                 ) : (
                   <div style={{ maxHeight: 360, overflowY: 'auto' }}>
                     {notifs.map(n => (
-                      <div key={n.id} style={{ padding: '10px 16px', borderBottom: '0.5px solid #f9fafb', background: n.read ? '#fff' : '#FAFAFA', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                      <div key={n.id} style={{ padding: '10px 16px', borderBottom: '0.5px solid #f9fafb', background: n.read ? '#fff' : '#fafafa', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                         <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>{TYPE_ICONS[n.type] || '📢'}</span>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 2 }}>{n.type}</div>
@@ -142,7 +144,7 @@ export default function Layout({ children, user }) {
             )}
           </div>
 
-          {/* User */}
+          {/* User pill */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', background: '#f9fafb', borderRadius: 8, border: '0.5px solid #e5e7eb' }}>
             <div style={{ width: 24, height: 24, borderRadius: '50%', background: admin ? '#CC2200' : '#2A5FA8', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700 }}>
               {user?.email?.[0]?.toUpperCase() || '?'}
@@ -169,7 +171,7 @@ export default function Layout({ children, user }) {
             const active = location.pathname === item.path || (item.path !== '/home' && location.pathname.startsWith(item.path))
             return (
               <Link key={item.path} to={item.path} className={`sidebar-item ${active ? 'active' : ''}`} onClick={() => setShowNotifs(false)}>
-                <span style={{ fontSize: 15, width: 18, textAlign: 'center' }}>{item.icon}</span>
+                <span style={{ fontSize: 15, width: 20, textAlign: 'center' }}>{item.icon}</span>
                 {item.label}
               </Link>
             )
