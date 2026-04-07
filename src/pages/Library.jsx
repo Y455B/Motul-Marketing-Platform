@@ -14,6 +14,14 @@ const EXT_ICONS = {
   mp4: '🎬', zip: '🗜️', ai: '🎨', psd: '🎨'
 }
 
+// Sanitiser un nom : supprime les caractères interdits par Supabase Storage
+const sanitize = (str) =>
+  str.trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // retire accents
+    .replace(/[^a-zA-Z0-9._\-]/g, '_') // remplace tout sauf alphanum/._- par _
+    .replace(/_+/g, '_') // collapse underscores multiples
+    .replace(/^_|_$/g, '') // retire _ en début/fin
+
 export default function Library({ user }) {
   const [requests, setRequests] = useState([])
   const [myRequest, setMyRequest] = useState(null)
@@ -21,11 +29,12 @@ export default function Library({ user }) {
   const [submitted, setSubmitted] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
+  // Navigation : tableau de segments ex: [] = racine, ['Catalogues'] = 1 niveau, ['Catalogues', 'Motul_2025'] = 2 niveaux
+  const [pathSegments, setPathSegments] = useState([])
   const [folders, setFolders] = useState([])
-  const [activeFolder, setActiveFolder] = useState(null)
   const [docs, setDocs] = useState([])
   const [uploading, setUploading] = useState(false)
-  const [newFolder, setNewFolder] = useState('')
+  const [newFolderName, setNewFolderName] = useState('')
   const [showNewFolder, setShowNewFolder] = useState(false)
   const [preview, setPreview] = useState(null)
   const [rejectTarget, setRejectTarget] = useState(null)
@@ -34,28 +43,24 @@ export default function Library({ user }) {
   const { toast, showToast } = useToast()
   const admin = isAdmin(user)
 
+  // Chemin storage courant
+  const currentStoragePath = () =>
+    pathSegments.length === 0 ? BASE : `${BASE}/${pathSegments.join('/')}`
+
   const getExt = (name) => name.split('.').pop().toLowerCase()
   const getIcon = (name) => EXT_ICONS[getExt(name)] || '📎'
 
-  // Chemin storage : library/ ou library/NomDossier/
-  const storagePath = (folder) => folder ? `${BASE}/${folder}` : BASE
-
-  const loadFolders = async () => {
-    const { data, error } = await supabase.storage.from(BUCKET).list(BASE, { limit: 100 })
-    if (error) { console.error('loadFolders error:', error); return }
-    // Dossiers = items sans id (pas de métadonnées de fichier)
-    setFolders((data || []).filter(f => !f.id && f.name !== '.emptyFolderPlaceholder'))
-  }
-
-  const loadDocs = async (folder) => {
-    const path = storagePath(folder)
+  const listCurrentLevel = async () => {
+    const path = currentStoragePath()
     const { data, error } = await supabase.storage.from(BUCKET).list(path, {
       limit: 200,
-      sortBy: { column: 'created_at', order: 'desc' }
+      sortBy: { column: 'name', order: 'asc' }
     })
-    if (error) { console.error('loadDocs error:', error); return }
-    // Fichiers uniquement (avec id), on exclut .keep
-    setDocs((data || []).filter(f => f.id && f.name !== '.keep'))
+    if (error) { console.error('list error:', error); return }
+    const items = data || []
+    // Dossiers = pas d'id (ou id null), Fichiers = ont un id
+    setFolders(items.filter(f => !f.id && f.name !== '.emptyFolderPlaceholder'))
+    setDocs(items.filter(f => f.id && f.name !== '.keep'))
   }
 
   const load = async () => {
@@ -63,25 +68,20 @@ export default function Library({ user }) {
     if (admin) {
       const { data } = await supabase.from('library_requests').select('*').order('created_at', { ascending: false })
       setRequests(data || [])
-      await loadFolders()
-      if (activeFolder !== null) await loadDocs(activeFolder)
     } else {
       const { data } = await supabase.from('library_requests').select('*').eq('email', user?.email).maybeSingle()
       setMyRequest(data || null)
-      if (data?.access_granted) {
-        await loadFolders()
-        if (activeFolder !== null) await loadDocs(activeFolder)
-      }
     }
+    await listCurrentLevel()
     setLoading(false)
   }
 
   useEffect(() => { if (user) load() }, [user, admin])
+  useEffect(() => { listCurrentLevel() }, [pathSegments])
 
-  useEffect(() => {
-    if (activeFolder !== null) loadDocs(activeFolder)
-    else setDocs([])
-  }, [activeFolder])
+  const navigateTo = (segments) => setPathSegments(segments)
+  const goInto = (folderName) => setPathSegments(prev => [...prev, folderName])
+  const goUp = () => setPathSegments(prev => prev.slice(0, -1))
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -105,51 +105,47 @@ export default function Library({ user }) {
       reject_reason: rejectReason || 'Demande non retenue'
     }).eq('id', rejectTarget.id)
     if (error) { showToast(error.message, 'error'); return }
-    if (rejectTarget.user_id) await createNotification(rejectTarget.user_id, 'LIBRARY_REFUSÉ', `Votre demande d'accès a été refusée. Motif : ${rejectReason || 'Demande non retenue'}`)
+    if (rejectTarget.user_id) await createNotification(rejectTarget.user_id, 'LIBRARY_REFUSÉ', `Votre demande a été refusée. Motif : ${rejectReason || 'Demande non retenue'}`)
     showToast('Demande refusée'); setRejectTarget(null); setRejectReason(''); load()
   }
 
   const createFolder = async () => {
-    if (!newFolder.trim()) return
-    // Créer un fichier .keep dans le sous-dossier pour matérialiser le dossier
-    const path = `${BASE}/${newFolder.trim()}/.keep`
+    const clean = sanitize(newFolderName)
+    if (!clean) { showToast('Nom de dossier invalide', 'error'); return }
+    const path = `${currentStoragePath()}/${clean}/.keep`
     const { error } = await supabase.storage.from(BUCKET).upload(path, new Blob(['']), { upsert: true })
     if (error) { showToast(error.message, 'error'); return }
-    showToast('Dossier créé')
-    setNewFolder(''); setShowNewFolder(false)
-    await loadFolders()
-    // Sélectionner automatiquement le dossier créé
-    setActiveFolder(newFolder.trim())
+    showToast(`Dossier "${clean}" créé`)
+    setNewFolderName(''); setShowNewFolder(false)
+    await listCurrentLevel()
+    goInto(clean)
   }
 
   const handleUpload = async (e) => {
     const files = Array.from(e.target.files)
     if (!files.length) return
-    if (activeFolder === null) { showToast('Sélectionnez un dossier avant d\'uploader', 'error'); return }
     setUploading(true)
     let success = 0
     for (const file of files) {
-      const filePath = `${BASE}/${activeFolder}/${Date.now()}_${file.name}`
+      const safeName = sanitize(file.name.replace(/\.[^/.]+$/, '')) + '.' + getExt(file.name)
+      const filePath = `${currentStoragePath()}/${Date.now()}_${safeName}`
       const { error } = await supabase.storage.from(BUCKET).upload(filePath, file, { upsert: false })
       if (error) showToast(`Erreur: ${file.name} — ${error.message}`, 'error')
       else success++
     }
     if (success > 0) showToast(`${success} fichier(s) ajouté(s)`)
-    await loadDocs(activeFolder)
-    setUploading(false)
-    e.target.value = ''
+    await listCurrentLevel()
+    setUploading(false); e.target.value = ''
   }
 
   const deleteDoc = async (name) => {
-    const filePath = `${BASE}/${activeFolder}/${name}`
-    const { error } = await supabase.storage.from(BUCKET).remove([filePath])
+    const { error } = await supabase.storage.from(BUCKET).remove([`${currentStoragePath()}/${name}`])
     if (error) { showToast(error.message, 'error'); return }
-    showToast('Document supprimé'); loadDocs(activeFolder)
+    showToast('Document supprimé'); listCurrentLevel()
   }
 
   const getSignedUrl = async (name) => {
-    const filePath = activeFolder ? `${BASE}/${activeFolder}/${name}` : `${BASE}/${name}`
-    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(filePath, 3600)
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(`${currentStoragePath()}/${name}`, 3600)
     if (error) { showToast(error.message, 'error'); return null }
     return data.signedUrl
   }
@@ -170,16 +166,116 @@ export default function Library({ user }) {
     if (url) { navigator.clipboard.writeText(url); showToast('Lien copié (valable 1h)') }
   }
 
+  // Breadcrumb
+  const Breadcrumb = () => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, marginBottom: 12, flexWrap: 'wrap' }}>
+      <span style={{ cursor: 'pointer', color: pathSegments.length === 0 ? '#CC2200' : '#6b7280', fontWeight: pathSegments.length === 0 ? 600 : 400 }} onClick={() => navigateTo([])}>
+        📚 Bibliothèque
+      </span>
+      {pathSegments.map((seg, i) => (
+        <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ color: '#d1d5db' }}>/</span>
+          <span
+            style={{ cursor: i < pathSegments.length - 1 ? 'pointer' : 'default', color: i === pathSegments.length - 1 ? '#CC2200' : '#6b7280', fontWeight: i === pathSegments.length - 1 ? 600 : 400 }}
+            onClick={() => i < pathSegments.length - 1 && navigateTo(pathSegments.slice(0, i + 1))}
+          >{seg}</span>
+        </span>
+      ))}
+    </div>
+  )
+
+  // Contenu du niveau courant (dossiers + fichiers)
+  const FolderContent = ({ canUpload = false }) => (
+    <div>
+      <Breadcrumb />
+      {/* Boutons actions */}
+      {canUpload && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          {pathSegments.length > 0 && (
+            <button className="btn" onClick={goUp}>← Retour</button>
+          )}
+          <button className="btn" onClick={() => setShowNewFolder(true)}>📁 Nouveau sous-dossier</button>
+          <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+            {uploading ? 'Upload...' : '⬆ Ajouter fichiers'}
+          </button>
+          <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleUpload} />
+        </div>
+      )}
+      {!canUpload && pathSegments.length > 0 && (
+        <button className="btn" style={{ marginBottom: 12 }} onClick={goUp}>← Retour</button>
+      )}
+
+      {/* Création dossier inline */}
+      {showNewFolder && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <input
+            value={newFolderName}
+            onChange={e => setNewFolderName(e.target.value)}
+            placeholder="Nom du sous-dossier"
+            autoFocus
+            onKeyDown={e => e.key === 'Enter' && createFolder()}
+            style={{ maxWidth: 300 }}
+          />
+          <button className="btn btn-primary" onClick={createFolder}>Créer</button>
+          <button className="btn" onClick={() => { setShowNewFolder(false); setNewFolderName('') }}>Annuler</button>
+        </div>
+      )}
+
+      {/* Liste dossiers */}
+      {folders.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 8, marginBottom: 12 }}>
+          {folders.map(f => (
+            <div key={f.name} className="card" style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'border-color .15s' }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = '#CC2200'}
+              onMouseLeave={e => e.currentTarget.style.borderColor = '#e5e7eb'}
+              onClick={() => goInto(f.name)}>
+              <span style={{ fontSize: 22 }}>📁</span>
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
+                <div style={{ fontSize: 10, color: '#9ca3af' }}>Ouvrir →</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Liste fichiers */}
+      {docs.length === 0 && folders.length === 0 && (
+        <div style={{ padding: 28, textAlign: 'center', fontSize: 12, color: '#9ca3af', background: '#f9fafb', borderRadius: 10, border: '0.5px dashed #e5e7eb' }}>
+          {canUpload ? 'Dossier vide · Ajoutez des fichiers ou créez un sous-dossier' : 'Aucun document disponible dans ce dossier.'}
+        </div>
+      )}
+      {docs.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {docs.map(f => (
+            <div key={f.id || f.name} className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 20, flexShrink: 0 }}>{getIcon(f.name)}</span>
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name.replace(/^\d+_/, '')}</div>
+                <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>{getExt(f.name).toUpperCase()}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13 }} onClick={() => openPreview(f)} title="Aperçu">👁</button>
+                <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13 }} onClick={() => copyLink(f.name)} title="Copier lien">🔗</button>
+                {canUpload && <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13, color: '#dc2626' }} onClick={() => deleteDoc(f.name)} title="Supprimer">✕</button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+
   const PreviewModal = () => !preview ? null : (
     <div className="modal-overlay" onClick={() => setPreview(null)}>
-      <div style={{ background: '#fff', borderRadius: 14, padding: 20, maxWidth: '80vw', maxHeight: '85vh', overflow: 'auto', minWidth: 400 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+      <div style={{ background: '#fff', borderRadius: 14, padding: 20, maxWidth: '82vw', maxHeight: '88vh', overflow: 'auto', minWidth: 400 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center' }}>
           <div style={{ fontSize: 14, fontWeight: 500 }}>{preview.name}</div>
-          <button onClick={() => setPreview(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af' }}>✕</button>
+          <button onClick={() => setPreview(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: '#9ca3af', lineHeight: 1 }}>✕</button>
         </div>
         {preview.type === 'image'
-          ? <img src={preview.url} alt={preview.name} style={{ maxWidth: '100%', maxHeight: '65vh', borderRadius: 8, display: 'block' }} />
-          : <iframe src={preview.url} style={{ width: '70vw', height: '65vh', border: 'none', borderRadius: 8 }} title={preview.name} />
+          ? <img src={preview.url} alt={preview.name} style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: 8, display: 'block' }} />
+          : <iframe src={preview.url} style={{ width: '75vw', height: '70vh', border: 'none', borderRadius: 8 }} title={preview.name} />
         }
       </div>
     </div>
@@ -189,38 +285,13 @@ export default function Library({ user }) {
   if (admin) return (
     <Layout user={user}>
       <div className="page-header">
-        <div>
-          <div className="page-title">Motul Library</div>
-          <div className="page-sub">Gestion des accès · Bibliothèque de contenu</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn" onClick={() => setShowNewFolder(true)}>📁 Nouveau dossier</button>
-          {activeFolder !== null && (
-            <>
-              <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-                {uploading ? 'Upload...' : '⬆ Ajouter fichiers'}
-              </button>
-              <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleUpload} />
-            </>
-          )}
-          <button className="btn" onClick={() => {
-            const rows = ['Nom,Email,Entreprise,Statut,Date', ...requests.map(r =>
-              `${r.nom} ${r.prenom},${r.email},${r.entreprise},${r.access_granted ? 'Accordé' : r.rejected ? 'Refusé' : 'En attente'},${new Date(r.created_at).toLocaleDateString('fr-FR')}`)].join('\n')
-            const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([rows], { type: 'text/csv' })); a.download = 'library.csv'; a.click()
-          }}>Export CSV ↓</button>
-        </div>
+        <div><div className="page-title">Motul Library</div><div className="page-sub">Gestion des accès · Bibliothèque de contenu</div></div>
+        <button className="btn btn-primary" onClick={() => {
+          const rows = ['Nom,Email,Entreprise,Statut,Date', ...requests.map(r =>
+            `${r.nom} ${r.prenom},${r.email},${r.entreprise},${r.access_granted ? 'Accordé' : r.rejected ? 'Refusé' : 'En attente'},${new Date(r.created_at).toLocaleDateString('fr-FR')}`)].join('\n')
+          const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([rows], { type: 'text/csv' })); a.download = 'library.csv'; a.click()
+        }}>Export CSV ↓</button>
       </div>
-
-      {showNewFolder && (
-        <div className="card card-pad" style={{ marginBottom: 16, maxWidth: 420 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Nouveau dossier</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input value={newFolder} onChange={e => setNewFolder(e.target.value)} placeholder="Ex: Catalogues 2025" autoFocus onKeyDown={e => e.key === 'Enter' && createFolder()} />
-            <button className="btn btn-primary" onClick={createFolder}>Créer</button>
-            <button className="btn" onClick={() => setShowNewFolder(false)}>✕</button>
-          </div>
-        </div>
-      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
         {/* Demandes */}
@@ -265,49 +336,8 @@ export default function Library({ user }) {
 
         {/* Bibliothèque */}
         <div>
-          <div className="section-title">
-            Bibliothèque
-            {activeFolder !== null && <span style={{ fontSize: 11, color: '#9ca3af', fontFamily: 'monospace', marginLeft: 8 }}>/ {activeFolder}</span>}
-          </div>
-
-          {/* Tabs dossiers */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-            {folders.length === 0
-              ? <div style={{ fontSize: 12, color: '#9ca3af' }}>Aucun dossier — créez-en un</div>
-              : folders.map(f => (
-                <button key={f.name} className="btn" onClick={() => setActiveFolder(activeFolder === f.name ? null : f.name)}
-                  style={activeFolder === f.name ? { background: '#FFF0ED', color: '#CC2200', borderColor: '#CC2200' } : {}}>
-                  📁 {f.name}
-                </button>
-              ))
-            }
-          </div>
-
-          {activeFolder === null
-            ? <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#9ca3af', background: '#f9fafb', borderRadius: 10, border: '0.5px dashed #e5e7eb' }}>
-                Sélectionnez un dossier pour voir son contenu
-              </div>
-            : docs.length === 0
-              ? <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#9ca3af', background: '#f9fafb', borderRadius: 10, border: '0.5px dashed #e5e7eb' }}>
-                  Dossier vide · Cliquez sur "Ajouter fichiers" pour uploader
-                </div>
-              : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {docs.map(f => (
-                    <div key={f.id} className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span style={{ fontSize: 20, flexShrink: 0 }}>{getIcon(f.name)}</span>
-                      <div style={{ flex: 1, overflow: 'hidden' }}>
-                        <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name.replace(/^\d+_/, '')}</div>
-                        <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>{getExt(f.name).toUpperCase()}</div>
-                      </div>
-                      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                        <button className="btn" style={{ width: 26, height: 26, padding: 0, fontSize: 13 }} onClick={() => openPreview(f)} title="Aperçu">👁</button>
-                        <button className="btn" style={{ width: 26, height: 26, padding: 0, fontSize: 13 }} onClick={() => copyLink(f.name)} title="Copier lien">🔗</button>
-                        <button className="btn" style={{ width: 26, height: 26, padding: 0, fontSize: 13, color: '#dc2626' }} onClick={() => deleteDoc(f.name)} title="Supprimer">✕</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-          }
+          <div className="section-title">Contenu de la bibliothèque</div>
+          <FolderContent canUpload={true} />
         </div>
       </div>
 
@@ -326,7 +356,6 @@ export default function Library({ user }) {
           </div>
         </div>
       )}
-
       <PreviewModal />
       <Toast toast={toast} />
     </Layout>
@@ -342,45 +371,7 @@ export default function Library({ user }) {
         <span>✅</span>
         <div style={{ fontSize: 13, fontWeight: 500, color: '#166534' }}>Vous avez accès à la Motul Library</div>
       </div>
-
-      {/* Tabs dossiers */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
-        {folders.map(f => (
-          <button key={f.name} className="btn" onClick={() => setActiveFolder(activeFolder === f.name ? null : f.name)}
-            style={activeFolder === f.name ? { background: '#FFF0ED', color: '#CC2200', borderColor: '#CC2200' } : {}}>
-            📁 {f.name}
-          </button>
-        ))}
-      </div>
-
-      {activeFolder === null
-        ? <div style={{ padding: 32, textAlign: 'center', fontSize: 13, color: '#9ca3af' }}>Sélectionnez un dossier pour voir les documents disponibles.</div>
-        : loading ? <div className="empty-state">Chargement...</div>
-        : docs.length === 0
-          ? <div className="empty-state"><div className="empty-state-icon">📂</div>Ce dossier est vide.</div>
-          : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 10 }}>
-              {docs.map(f => (
-                <div key={f.id} className="card" style={{ padding: '14px 16px', cursor: 'pointer', transition: 'border-color .15s' }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = '#CC2200'}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = '#e5e7eb'}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                    <span style={{ fontSize: 26 }}>{getIcon(f.name)}</span>
-                    <div style={{ flex: 1, overflow: 'hidden' }}>
-                      <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name.replace(/^\d+_/, '')}</div>
-                      <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>{getExt(f.name).toUpperCase()}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn btn-primary" style={{ flex: 1, fontSize: 11, padding: '5px', justifyContent: 'center' }} onClick={() => openPreview(f)}>
-                      {IMG_EXTS.includes(getExt(f.name)) || PDF_EXTS.includes(getExt(f.name)) ? '👁 Aperçu' : '↓ Télécharger'}
-                    </button>
-                    <button className="btn" style={{ fontSize: 11, padding: '5px 10px' }} onClick={() => copyLink(f.name)} title="Copier lien">🔗</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-      }
-
+      <FolderContent canUpload={false} />
       <PreviewModal />
       <Toast toast={toast} />
     </Layout>
@@ -426,7 +417,7 @@ export default function Library({ user }) {
         </div>
       ) : (
         <div className="card card-pad" style={{ maxWidth: 560 }}>
-          <div onClick={() => showToast('Téléchargement du guide...')} style={{ background: '#FFF0ED', border: '0.5px solid #FECACA', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, cursor: 'pointer' }}>
+          <div style={{ background: '#FFF0ED', border: '0.5px solid #FECACA', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
             <div style={{ width: 32, height: 32, background: '#CC2200', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 14, flexShrink: 0 }}>↓</div>
             <div>
               <div style={{ fontSize: 13, fontWeight: 500, color: '#A01A00' }}>Guide d'accès à la Motul Library</div>
