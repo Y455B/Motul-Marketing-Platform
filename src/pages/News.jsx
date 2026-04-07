@@ -124,42 +124,49 @@ export default function News({ user }) {
         {admin && <button className="btn btn-primary" onClick={openNew}>+ Nouvel article</button>}
       </div>
 
+      {/* Modal formulaire — position fixed, résistante au changement d'onglet */}
       {admin && showForm && (
-        <div className="card card-pad" style={{ marginBottom: 20, maxWidth: 600 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>{editId ? "Modifier l'article" : 'Nouvel article'}</div>
-          <form onSubmit={handleSave}>
-            <div className="form-grid">
-              <div className="form-full">
-                <label className="form-label">Titre <span className="form-req">*</span></label>
-                <input required value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder="Titre de l'article" />
-              </div>
-              <div className="form-full">
-                <label className="form-label">Contenu</label>
-                <textarea value={form.content} onChange={e => setForm(p => ({ ...p, content: e.target.value }))} placeholder="Contenu de l'article..." rows={4} style={{ resize: 'vertical' }} />
-              </div>
-              <div className="form-full">
-                <label className="form-label">Image <span style={{ fontSize: 10, color: '#9ca3af', fontWeight: 400 }}>· JPG, PNG recommandé</span></label>
-                <input type="file" accept="image/*" onChange={handleImageChange} />
-                {imagePreview && (
-                  <div style={{ marginTop: 10 }}>
-                    <img src={imagePreview} alt="Aperçu" style={{ width: '100%', maxHeight: 200, borderRadius: 8, objectFit: 'cover', display: 'block' }} />
-                    <button type="button" onClick={() => { setImageFile(null); setImagePreview(null); setCurrentImageUrl(null) }}
-                      style={{ marginTop: 6, fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                      ✕ Retirer l'image
-                    </button>
-                  </div>
-                )}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button type="button" className={`toggle ${form.visible ? 'on' : ''}`} onClick={() => setForm(p => ({ ...p, visible: !p.visible }))} />
-                <span style={{ fontSize: 12, color: '#6b7280' }}>{form.visible ? 'Visible' : 'Masqué'}</span>
-              </div>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', padding: 28, boxShadow: '0 8px 40px rgba(0,0,0,.2)' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>{editId ? "Modifier l'article" : 'Nouvel article'}</div>
+              <button type="button" onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af', lineHeight: 1 }}>✕</button>
             </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>Annuler</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Enregistrement...' : editId ? 'Mettre à jour' : 'Publier'}</button>
-            </div>
-          </form>
+            <form onSubmit={handleSave}>
+              <div className="form-grid">
+                <div className="form-full">
+                  <label className="form-label">Titre <span className="form-req">*</span></label>
+                  <input required value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder="Titre de l'article" autoFocus />
+                </div>
+                <div className="form-full">
+                  <label className="form-label">Contenu</label>
+                  <textarea value={form.content} onChange={e => setForm(p => ({ ...p, content: e.target.value }))} placeholder="Contenu de l'article..." rows={5} style={{ resize: 'vertical' }} />
+                </div>
+                <div className="form-full">
+                  <label className="form-label">Image <span style={{ fontSize: 10, color: '#9ca3af', fontWeight: 400 }}>· JPG, PNG recommandé</span></label>
+                  <input type="file" accept="image/*" onChange={handleImageChange} />
+                  {imagePreview && (
+                    <div style={{ marginTop: 10 }}>
+                      <img src={imagePreview} alt="Aperçu" style={{ width: '100%', maxHeight: 200, borderRadius: 8, objectFit: 'cover', display: 'block' }} />
+                      <button type="button" onClick={() => { setImageFile(null); setImagePreview(null); setCurrentImageUrl(null) }}
+                        style={{ marginTop: 6, fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                        ✕ Retirer l'image
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button type="button" className={`toggle ${form.visible ? 'on' : ''}`} onClick={() => setForm(p => ({ ...p, visible: !p.visible }))} />
+                  <span style={{ fontSize: 12, color: '#6b7280' }}>{form.visible ? 'Visible' : 'Masqué'}</span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+                <button type="button" className="btn" onClick={() => setShowForm(false)}>Annuler</button>
+                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Enregistrement...' : editId ? 'Mettre à jour' : 'Publier'}</button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
