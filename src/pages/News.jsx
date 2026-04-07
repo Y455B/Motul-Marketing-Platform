@@ -20,23 +20,18 @@ export default function News({ user }) {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const { toast, showToast } = useToast()
   const admin = isAdmin(user)
-  // Ref pour protéger showForm contre les re-renders liés au changement d'onglet
-  const formLocked = useRef(false)
 
-  useEffect(() => {
-    // Bloquer tout setState qui fermerait le form quand l'onglet perd le focus
-    const handler = (e) => {
-      if (document.visibilityState === 'hidden') {
-        formLocked.current = true
-      } else {
-        formLocked.current = false
-      }
-    }
-    document.addEventListener('visibilitychange', handler)
-    return () => document.removeEventListener('visibilitychange', handler)
-  }, [])
+  // showFormRef : miroir de showForm accessible dans les callbacks async/event handlers
+  // sans créer de dépendance qui provoquerait un re-render
+  const showFormRef = useRef(false)
+  const setShowFormSafe = (val) => {
+    showFormRef.current = val
+    setShowForm(val)
+  }
 
   const load = async () => {
+    // Ne jamais recharger si le formulaire est ouvert — ça resetterait showForm
+    if (showFormRef.current) return
     setLoading(true)
     let query = supabase.from('news').select('*').order('created_at', { ascending: false })
     if (!admin) query = query.eq('visible', true)
@@ -46,7 +41,17 @@ export default function News({ user }) {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [admin])
+  // Chargement initial uniquement — pas de dépendance sur admin pour éviter les re-triggers
+  useEffect(() => { load() }, [])
+
+  // Bloquer les rechargements déclenchés par le navigateur au changement d'onglet
+  useEffect(() => {
+    const handler = () => {
+      // Ne rien faire si le formulaire est ouvert
+    }
+    document.addEventListener('visibilitychange', handler)
+    return () => document.removeEventListener('visibilitychange', handler)
+  }, [])
 
   const openNew = () => {
     setForm(EMPTY)
@@ -54,7 +59,7 @@ export default function News({ user }) {
     setImageFile(null)
     setImagePreview(null)
     setCurrentImageUrl(null)
-    setShowForm(true)
+    setShowFormSafe(true)
   }
 
   const openEdit = (item) => {
@@ -63,7 +68,11 @@ export default function News({ user }) {
     setImageFile(null)
     setImagePreview(item.image_url || null)
     setCurrentImageUrl(item.image_url || null)
-    setShowForm(true)
+    setShowFormSafe(true)
+  }
+
+  const closeForm = () => {
+    setShowFormSafe(false)
   }
 
   const handleImageChange = (e) => {
@@ -77,7 +86,6 @@ export default function News({ user }) {
     e.preventDefault()
     setSaving(true)
 
-    // image_url = nouvelle image uploadée, ou image existante, ou null
     let image_url = currentImageUrl
 
     if (imageFile) {
@@ -112,8 +120,9 @@ export default function News({ user }) {
       showToast('Article publié')
     }
 
-    setShowForm(false)
+    closeForm()
     setSaving(false)
+    // Recharger après fermeture — safe car showFormRef.current est false
     load()
   }
 
@@ -140,20 +149,23 @@ export default function News({ user }) {
         {admin && <button className="btn btn-primary" onClick={openNew}>+ Nouvel article</button>}
       </div>
 
-      {/* Modal formulaire — rendue dans document.body via Portal */}
-      {admin && showForm && createPortal((
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', padding: 28, boxShadow: '0 8px 40px rgba(0,0,0,.2)' }}
-            onClick={e => e.stopPropagation()}>
+      {/* Modal — Portal dans document.body, totalement hors du DOM React de la page */}
+      {admin && showForm && createPortal(
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
+        >
+          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', padding: 28, boxShadow: '0 8px 40px rgba(0,0,0,.25)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div style={{ fontSize: 15, fontWeight: 600 }}>{editId ? "Modifier l'article" : 'Nouvel article'}</div>
-              <button type="button" onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af', lineHeight: 1 }}>✕</button>
+              <button type="button" onClick={closeForm} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: '#9ca3af', lineHeight: 1 }}>✕</button>
             </div>
             <form onSubmit={handleSave}>
               <div className="form-grid">
                 <div className="form-full">
                   <label className="form-label">Titre <span className="form-req">*</span></label>
-                  <input required value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder="Titre de l'article" autoFocus />
+                  <input required value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder="Titre de l'article" />
                 </div>
                 <div className="form-full">
                   <label className="form-label">Contenu</label>
@@ -178,13 +190,14 @@ export default function News({ user }) {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
-                <button type="button" className="btn" onClick={() => setShowForm(false)}>Annuler</button>
+                <button type="button" className="btn" onClick={closeForm}>Annuler</button>
                 <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Enregistrement...' : editId ? 'Mettre à jour' : 'Publier'}</button>
               </div>
             </form>
           </div>
-        </div>
-      ), document.body)}
+        </div>,
+        document.body
+      )}
 
       {loading ? <div className="empty-state">Chargement...</div>
         : news.length === 0
