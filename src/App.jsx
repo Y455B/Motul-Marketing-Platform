@@ -38,8 +38,16 @@ export default function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setUser(data.session?.user ?? null))
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      setUser(session?.user ?? null)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Ne mettre à jour user QUE si l'identité change réellement
+      // Évite les re-renders au retour d'onglet quand Supabase revalide le token
+      if (event === 'TOKEN_REFRESHED') return
+      setUser(prev => {
+        const next = session?.user ?? null
+        // Même id = même utilisateur, pas besoin de re-render
+        if (prev?.id && next?.id && prev.id === next.id) return prev
+        return next
+      })
     })
     return () => subscription.unsubscribe()
   }, [])
