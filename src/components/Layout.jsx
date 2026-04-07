@@ -85,25 +85,13 @@ export default function Layout({ children, user }) {
     <div className="app-shell">
       {/* TOPBAR NOIRE */}
       <header className="topbar">
-        {/* Logo Motul */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+        {/* Logo Motul — fond blanc pour lisibilité sur topbar noire */}
+        <div style={{ background: '#fff', borderRadius: 4, padding: '4px 8px', display: 'flex', alignItems: 'center' }}>
           <img
             src="/logo-motul.png"
             alt="Motul Africa Marketing Platform"
             style={{ height: 32, objectFit: 'contain', display: 'block' }}
-            onError={e => {
-              e.target.style.display = 'none'
-              e.target.nextSibling.style.display = 'flex'
-            }}
           />
-          {/* Fallback si image absente */}
-          <div style={{ display: 'none', alignItems: 'center', gap: 10 }}>
-            <div style={{ background: '#CC2200', padding: '4px 10px', borderRadius: 3 }}>
-              <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 18, color: '#fff', letterSpacing: 2 }}>MOTUL</span>
-            </div>
-            <div style={{ width: 1, height: 20, background: '#CC2200' }} />
-            <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 14, color: '#fff', letterSpacing: 1.5 }}>AFRICA MARKETING PLATFORM</span>
-          </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, position: 'relative' }}>
