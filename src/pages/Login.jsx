@@ -27,13 +27,14 @@ export default function Login() {
         <div style={{ position: 'absolute', top: -60, left: -60, width: 200, height: 200, borderRadius: '50%', background: 'rgba(204,34,0,.05)', pointerEvents: 'none' }} />
 
         <div style={{ position: 'relative' }}>
-          {/* Logo */}
-          <img
-            src="/logo-motul.png"
-            alt="Motul Africa"
-            style={{ height: 44, objectFit: 'contain', marginBottom: 40, display: 'block' }}
-            onError={e => { e.target.style.display = 'none' }}
-          />
+          {/* Logo — fond blanc pour lisibilité sur fond sombre */}
+          <div style={{ display: 'inline-flex', background: '#fff', borderRadius: 4, padding: '6px 12px', marginBottom: 40 }}>
+            <img
+              src="/logo-motul.png"
+              alt="Motul Africa"
+              style={{ height: 44, objectFit: 'contain', display: 'block' }}
+            />
+          </div>
 
           <div style={{ width: 40, height: 3, background: '#CC2200', borderRadius: 2, marginBottom: 28 }} />
 
@@ -47,16 +48,22 @@ export default function Login() {
 
           <div style={{ marginTop: 48, display: 'flex', gap: 12 }}>
             <a href="https://www.instagram.com/motulafrica/" target="_blank" rel="noopener noreferrer"
-              style={{ width: 36, height: 36, borderRadius: 4, background: '#1A1A1A', border: '1px solid #2A2A2A', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', fontSize: 16, transition: 'border-color .15s' }}
+              style={{ width: 36, height: 36, borderRadius: 4, background: '#1A1A1A', border: '1px solid #2A2A2A', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', transition: 'border-color .15s' }}
               onMouseEnter={e => e.currentTarget.style.borderColor = '#CC2200'}
               onMouseLeave={e => e.currentTarget.style.borderColor = '#2A2A2A'}>
-              📷
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="2" y="2" width="20" height="20" rx="5" stroke="#9CA3AF" strokeWidth="2"/>
+                <circle cx="12" cy="12" r="4" stroke="#9CA3AF" strokeWidth="2"/>
+                <circle cx="17.5" cy="6.5" r="1.5" fill="#9CA3AF"/>
+              </svg>
             </a>
             <a href="https://www.facebook.com/MotulAfrica" target="_blank" rel="noopener noreferrer"
-              style={{ width: 36, height: 36, borderRadius: 4, background: '#1A1A1A', border: '1px solid #2A2A2A', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', fontSize: 16, transition: 'border-color .15s' }}
+              style={{ width: 36, height: 36, borderRadius: 4, background: '#1A1A1A', border: '1px solid #2A2A2A', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', transition: 'border-color .15s' }}
               onMouseEnter={e => e.currentTarget.style.borderColor = '#CC2200'}
               onMouseLeave={e => e.currentTarget.style.borderColor = '#2A2A2A'}>
-              👍
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M18 2H15C13.6739 2 12.4021 2.52678 11.4645 3.46447C10.5268 4.40215 10 5.67392 10 7V10H7V14H10V22H14V14H17L18 10H14V7C14 6.73478 14.1054 6.48043 14.2929 6.29289C14.4804 6.10536 14.7348 6 15 6H18V2Z" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
             </a>
           </div>
         </div>
