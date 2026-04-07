@@ -83,7 +83,7 @@ export default function Home({ user }) {
         <div style={{ borderRadius: 14, background: 'linear-gradient(135deg,#CC2200,#A01A00)', marginBottom: 24, height: 180, display: 'flex', alignItems: 'center', padding: '0 32px' }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Bienvenue sur Africa Marketing Platform</div>
-            <div style={{ fontSize: 14, color: 'rgba(255,255,255,.75)' }}>Gérez vos actions marketing Motul Africa</div>
+            <div style={{ fontSize: 14, color: 'rgba(255,255,255,.75)' }}>Votre espace partenaire dédié aux activations Motul Africa</div>
           </div>
         </div>
       )}
