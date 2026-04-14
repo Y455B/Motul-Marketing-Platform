@@ -70,6 +70,7 @@ export default function Library({ user }) {
   const [folderMetas, setFolderMetas] = useState({}) // { folderName: { coverUrl, fileCount } }
   const searchTimer = useRef(null)
   const fileInputRef = useRef()
+  const listVersion = useRef(0)
   const { toast, showToast } = useToast()
   const admin = isAdmin(user)
 
@@ -81,14 +82,16 @@ export default function Library({ user }) {
   const getIcon = (name) => EXT_ICONS[getExt(name)] || '📎'
 
   const listCurrentLevel = async () => {
+    // Ignorer les réponses obsolètes (race condition avec navigation rapide)
+    const myVersion = ++listVersion.current
     const path = currentStoragePath()
     const { data, error } = await supabase.storage.from(BUCKET).list(path, {
       limit: 200,
       sortBy: { column: 'name', order: 'asc' }
     })
+    if (myVersion !== listVersion.current) return // réponse obsolète, on ignore
     if (error) { showToast('Erreur de chargement', 'error'); return }
     const items = data || []
-    // Dossiers = pas d'id (ou id null), Fichiers = ont un id
     setFolders(items.filter(f => !f.id && f.name !== '.emptyFolderPlaceholder'))
     setDocs(items.filter(f => f.id && f.name !== '.keep'))
   }
@@ -102,7 +105,8 @@ export default function Library({ user }) {
       const { data } = await supabase.from('library_requests').select('*').eq('email', user?.email).maybeSingle()
       setMyRequest(data || null)
     }
-    await listCurrentLevel()
+    // listCurrentLevel() est appelé par le useEffect sur [pathSegments] — ne pas dupliquer ici
+    // pour éviter une race condition avec la redirection via ?path=
     setLoading(false)
   }
 
