@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import JSZip from 'jszip'
 import Layout from '../components/Layout'
 import { useToast, Toast } from '../lib/useToast.jsx'
@@ -7,13 +8,34 @@ import { supabase, isAdmin, createNotification } from '../lib/supabase'
 const EMPTY_FORM = { nom: '', prenom: '', email: '', entreprise: '', poste: '' }
 const BUCKET = 'platform-files'
 const BASE = 'library'
-const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp']
+const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp']
 const PDF_EXTS = ['pdf']
+const VIDEO_EXTS = ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v']
+const AUDIO_EXTS = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac']
+const TEXT_EXTS = ['txt', 'md', 'csv', 'log', 'json', 'xml', 'html', 'css', 'js']
+const OFFICE_EXTS = ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt']
 const EXT_ICONS = {
   pdf: '📄', docx: '📝', doc: '📝', xlsx: '📊', xls: '📊',
-  pptx: '📑', ppt: '📑', png: '🖼️', jpg: '🖼️', jpeg: '🖼️',
-  mp4: '🎬', zip: '🗜️', ai: '🎨', psd: '🎨'
+  pptx: '📑', ppt: '📑', png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', webp: '🖼️', svg: '🖼️',
+  mp4: '🎬', mov: '🎬', webm: '🎬', mkv: '🎬', avi: '🎬', m4v: '🎬',
+  mp3: '🎵', wav: '🎵', ogg: '🎵', m4a: '🎵', aac: '🎵', flac: '🎵',
+  zip: '🗜️', rar: '🗜️', '7z': '🗜️',
+  ai: '🎨', psd: '🎨', fig: '🎨',
+  txt: '📃', md: '📃', csv: '📊', json: '📃'
 }
+
+// Couleurs pastel pour fallback cover (déterministe par nom)
+const FOLDER_COLORS = [
+  ['#FEE2E2', '#DC2626'], ['#FEF3C7', '#D97706'], ['#D1FAE5', '#059669'],
+  ['#DBEAFE', '#2563EB'], ['#EDE9FE', '#7C3AED'], ['#FCE7F3', '#DB2777'],
+  ['#E0F2FE', '#0284C7'], ['#FFEDD5', '#EA580C']
+]
+const hashString = (s) => {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
+  return Math.abs(h)
+}
+const getFolderColor = (name) => FOLDER_COLORS[hashString(name) % FOLDER_COLORS.length]
 
 // Sanitiser un nom : supprime les caractères interdits par Supabase Storage
 const sanitize = (str) =>
@@ -24,6 +46,7 @@ const sanitize = (str) =>
     .replace(/^_|_$/g, '') // retire _ en début/fin
 
 export default function Library({ user }) {
+  const [searchParams] = useSearchParams()
   const [requests, setRequests] = useState([])
   const [myRequest, setMyRequest] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -44,6 +67,7 @@ export default function Library({ user }) {
   const [searchResults, setSearchResults] = useState(null) // null = pas de recherche, [] = recherche vide
   const [searching, setSearching] = useState(false)
   const [downloadingFolder, setDownloadingFolder] = useState(null)
+  const [folderMetas, setFolderMetas] = useState({}) // { folderName: { coverUrl, fileCount } }
   const searchTimer = useRef(null)
   const fileInputRef = useRef()
   const { toast, showToast } = useToast()
@@ -84,6 +108,36 @@ export default function Library({ user }) {
 
   useEffect(() => { if (user) load() }, [user, admin])
   useEffect(() => { listCurrentLevel() }, [pathSegments])
+  // Lire le query param ?path=... pour naviguer directement dans un dossier (depuis les sliders)
+  useEffect(() => {
+    const pathParam = searchParams.get('path')
+    if (pathParam) setPathSegments(pathParam.split('/').filter(Boolean))
+  }, [searchParams])
+  // Recharger les métas (cover + count) chaque fois que la liste de dossiers change
+  useEffect(() => {
+    if (folders.length === 0) { setFolderMetas({}); return }
+    loadFolderMetas(folders)
+  }, [folders, pathSegments])
+
+  // Calculer la cover image + le nombre de fichiers de chaque dossier
+  const loadFolderMetas = async (list) => {
+    const base = currentStoragePath()
+    const metas = {}
+    await Promise.all(list.map(async (f) => {
+      const folderPath = `${base}/${f.name}`
+      // Chercher récursivement la 1ère image + compter les fichiers
+      const files = await collectAllFiles(folderPath)
+      const onlyFiles = files.filter(x => x.type === 'file')
+      const firstImage = onlyFiles.find(x => IMG_EXTS.includes(getExt(x.name)))
+      let coverUrl = null
+      if (firstImage) {
+        const { data } = await supabase.storage.from(BUCKET).createSignedUrl(firstImage.path, 3600)
+        coverUrl = data?.signedUrl || null
+      }
+      metas[f.name] = { coverUrl, fileCount: onlyFiles.length }
+    }))
+    setFolderMetas(metas)
+  }
 
   const navigateTo = (segments) => setPathSegments(segments)
   const goInto = (folderName) => setPathSegments(prev => [...prev, folderName])
@@ -173,10 +227,18 @@ export default function Library({ user }) {
     const ext = getExt(f.name)
     const url = await getSignedUrl(f.name)
     if (!url) return
-    if (IMG_EXTS.includes(ext) || PDF_EXTS.includes(ext)) {
-      setPreview({ url, name: f.name.replace(/^\d+_/, ''), type: IMG_EXTS.includes(ext) ? 'image' : 'pdf' })
+    const displayName = f.name.replace(/^\d+_/, '')
+    if (IMG_EXTS.includes(ext)) setPreview({ url, name: displayName, type: 'image', ext })
+    else if (PDF_EXTS.includes(ext)) setPreview({ url, name: displayName, type: 'pdf', ext })
+    else if (VIDEO_EXTS.includes(ext)) setPreview({ url, name: displayName, type: 'video', ext })
+    else if (AUDIO_EXTS.includes(ext)) setPreview({ url, name: displayName, type: 'audio', ext })
+    else if (TEXT_EXTS.includes(ext)) setPreview({ url, name: displayName, type: 'text', ext })
+    else if (OFFICE_EXTS.includes(ext)) {
+      // Office docs : utiliser le viewer Office Online
+      setPreview({ url, name: displayName, type: 'office', ext, viewerUrl: `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}` })
     } else {
-      const a = document.createElement('a'); a.href = url; a.download = f.name.replace(/^\d+_/, ''); a.click()
+      // Type inconnu : téléchargement direct
+      const a = document.createElement('a'); a.href = url; a.download = displayName; a.click()
     }
   }
 
@@ -369,37 +431,61 @@ export default function Library({ user }) {
             </div>
           )}
 
-          {/* Liste dossiers */}
+          {/* Grille de dossiers (tuiles avec cover) */}
           {folders.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-              {folders.map(f => (
-                <div key={f.name} className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, transition: 'border-color .15s' }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = '#CC2200'}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = '#e5e7eb'}>
-                  <span style={{ fontSize: 22, cursor: 'pointer', flexShrink: 0 }} onClick={() => goInto(f.name)}>📁</span>
-                  <div style={{ flex: 1, overflow: 'hidden', cursor: 'pointer' }} onClick={() => goInto(f.name)}>
-                    <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
-                    <div style={{ fontSize: 10, color: '#9ca3af' }}>Ouvrir →</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                    <button
-                      className="btn"
-                      style={{ height: 28, padding: '0 8px', fontSize: 13 }}
-                      title="Télécharger le dossier (ZIP)"
-                      disabled={downloadingFolder === f.name}
-                      onClick={e => { e.stopPropagation(); downloadFolderAsZip(f.name) }}
-                    >{downloadingFolder === f.name ? '⏳' : '⬇'}</button>
-                    {canUpload && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14, marginBottom: 20 }}>
+              {folders.map(f => {
+                const meta = folderMetas[f.name] || {}
+                const [bgColor, accentColor] = getFolderColor(f.name)
+                const initial = f.name.charAt(0).toUpperCase()
+                return (
+                  <div
+                    key={f.name}
+                    style={{ position: 'relative', aspectRatio: '1 / 1', borderRadius: 14, overflow: 'hidden', cursor: 'pointer', background: meta.coverUrl ? '#1a1a1a' : bgColor, transition: 'transform .2s ease, box-shadow .2s ease', border: '0.5px solid #e5e7eb' }}
+                    onClick={() => goInto(f.name)}
+                    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 10px 28px rgba(0,0,0,.12)'; e.currentTarget.style.borderColor = '#CC2200' }}
+                    onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = '#e5e7eb' }}
+                  >
+                    {/* Cover */}
+                    {meta.coverUrl ? (
+                      <img src={meta.coverUrl} alt={f.name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ fontSize: 80, fontFamily: "'Bebas Neue', sans-serif", color: accentColor, opacity: 0.9, lineHeight: 1 }}>{initial}</div>
+                      </div>
+                    )}
+                    {/* Overlay dégradé */}
+                    <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,.8) 0%, rgba(0,0,0,.2) 50%, transparent 100%)' }} />
+                    {/* Badge type */}
+                    <div style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(255,255,255,.95)', color: '#1a1a1a', fontSize: 10, padding: '3px 8px', borderRadius: 4, fontFamily: 'monospace', fontWeight: 600, letterSpacing: 0.5 }}>📁 DOSSIER</div>
+                    {/* Actions en haut à droite */}
+                    <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
                       <button
                         className="btn"
-                        style={{ height: 28, padding: '0 8px', fontSize: 13, color: '#dc2626' }}
-                        title="Supprimer le dossier"
-                        onClick={e => { e.stopPropagation(); if (window.confirm(`Supprimer le dossier "${f.name}" et tout son contenu ?`)) deleteFolder(f.name) }}
-                      >✕</button>
-                    )}
+                        style={{ width: 28, height: 28, padding: 0, fontSize: 12, background: 'rgba(255,255,255,.95)', border: 'none' }}
+                        title="Télécharger le dossier (ZIP)"
+                        disabled={downloadingFolder === f.name}
+                        onClick={() => downloadFolderAsZip(f.name)}
+                      >{downloadingFolder === f.name ? '⏳' : '⬇'}</button>
+                      {canUpload && (
+                        <button
+                          className="btn"
+                          style={{ width: 28, height: 28, padding: 0, fontSize: 11, background: 'rgba(255,255,255,.95)', color: '#dc2626', border: 'none' }}
+                          title="Supprimer le dossier"
+                          onClick={() => { if (window.confirm(`Supprimer le dossier "${f.name}" et tout son contenu ?`)) deleteFolder(f.name) }}
+                        >✕</button>
+                      )}
+                    </div>
+                    {/* Titre + compteur en bas */}
+                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '14px 16px', color: '#fff' }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2, textShadow: '0 1px 3px rgba(0,0,0,.6)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,.85)', fontFamily: 'monospace', letterSpacing: 0.3 }}>
+                        {meta.fileCount === undefined ? '...' : `${meta.fileCount} fichier${meta.fileCount > 1 ? 's' : ''}`}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
 
@@ -435,15 +521,40 @@ export default function Library({ user }) {
 
   const PreviewModal = () => !preview ? null : (
     <div className="modal-overlay" onClick={() => setPreview(null)}>
-      <div style={{ background: '#fff', borderRadius: 14, padding: 20, maxWidth: '82vw', maxHeight: '88vh', overflow: 'auto', minWidth: 400 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center' }}>
-          <div style={{ fontSize: 14, fontWeight: 500 }}>{preview.name}</div>
-          <button onClick={() => setPreview(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: '#9ca3af', lineHeight: 1 }}>✕</button>
+      <div style={{ background: '#fff', borderRadius: 14, padding: 20, maxWidth: '88vw', maxHeight: '92vh', overflow: 'auto', minWidth: 400 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center', gap: 10 }}>
+          <div style={{ fontSize: 14, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preview.name}</div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+            <a className="btn" href={preview.url} download={preview.name} style={{ fontSize: 12, padding: '4px 10px', textDecoration: 'none' }}>⬇ Télécharger</a>
+            <button onClick={() => setPreview(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: '#9ca3af', lineHeight: 1 }}>✕</button>
+          </div>
         </div>
-        {preview.type === 'image'
-          ? <img src={preview.url} alt={preview.name} style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: 8, display: 'block' }} />
-          : <iframe src={preview.url} style={{ width: '75vw', height: '70vh', border: 'none', borderRadius: 8 }} title={preview.name} />
-        }
+        {preview.type === 'image' && (
+          <img src={preview.url} alt={preview.name} style={{ maxWidth: '100%', maxHeight: '75vh', borderRadius: 8, display: 'block', margin: '0 auto' }} />
+        )}
+        {preview.type === 'pdf' && (
+          <iframe src={preview.url} style={{ width: '80vw', height: '75vh', border: 'none', borderRadius: 8 }} title={preview.name} />
+        )}
+        {preview.type === 'video' && (
+          <video src={preview.url} controls style={{ maxWidth: '80vw', maxHeight: '75vh', borderRadius: 8, display: 'block', background: '#000' }}>
+            Votre navigateur ne supporte pas la lecture vidéo.
+          </video>
+        )}
+        {preview.type === 'audio' && (
+          <div style={{ padding: '40px 20px', textAlign: 'center', background: 'linear-gradient(135deg, #CC2200 0%, #A01A00 100%)', borderRadius: 8, minWidth: 500 }}>
+            <div style={{ fontSize: 60, marginBottom: 20 }}>🎵</div>
+            <div style={{ color: '#fff', fontSize: 14, fontWeight: 600, marginBottom: 20 }}>{preview.name}</div>
+            <audio src={preview.url} controls autoPlay style={{ width: '100%' }}>
+              Votre navigateur ne supporte pas la lecture audio.
+            </audio>
+          </div>
+        )}
+        {preview.type === 'text' && (
+          <iframe src={preview.url} style={{ width: '80vw', height: '75vh', border: '1px solid #e5e7eb', borderRadius: 8, background: '#fafafa' }} title={preview.name} />
+        )}
+        {preview.type === 'office' && (
+          <iframe src={preview.viewerUrl} style={{ width: '85vw', height: '78vh', border: 'none', borderRadius: 8 }} title={preview.name} />
+        )}
       </div>
     </div>
   )

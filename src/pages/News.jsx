@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { ConfirmModal } from '../components/ConfirmModal'
 import { useToast, Toast } from '../lib/useToast.jsx'
@@ -202,32 +203,76 @@ export default function News({ user }) {
       {loading ? <div className="empty-state">Chargement...</div>
         : news.length === 0
           ? <div className="empty-state"><div className="empty-state-icon">📰</div>{admin ? 'Aucun article. Créez votre premier article.' : 'Aucune actualité disponible.'}</div>
-          : <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {news.map(n => (
-                <div key={n.id} className="card" style={{ overflow: 'hidden', opacity: admin && !n.visible ? .6 : 1 }}>
-                  {n.image_url && (
-                    <img src={n.image_url} alt={n.title} style={{ width: '100%', height: 200, objectFit: 'cover', display: 'block' }} />
-                  )}
-                  <div style={{ padding: '16px 20px' }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{n.title}</div>
-                    <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 8 }}>
-                      {new Date(n.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}
-                    </div>
-                    {n.content && <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.6 }}>{n.content}</div>}
-                    {admin && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, paddingTop: 12, borderTop: '0.5px solid #f3f4f6' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <button className={`toggle ${n.visible ? 'on' : ''}`} onClick={() => toggleVisible(n)} />
-                          <span style={{ fontSize: 11, color: '#6b7280' }}>{n.visible ? 'Visible' : 'Masqué'}</span>
-                        </div>
-                        <button className="btn" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => openEdit(n)}>Modifier</button>
-                        <button className="btn" style={{ fontSize: 11, padding: '3px 10px', color: '#dc2626', borderColor: '#fecaca' }} onClick={() => setDeleteTarget(n)}>Supprimer</button>
+          : (() => {
+              // Vue partenaire : article "featured" + grille
+              const featured = news[0]
+              const rest = news.slice(1)
+              return (
+                <div>
+                  {/* Article featured (grand format, image pleine largeur) */}
+                  <Link to={`/news/${featured.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                    <div className="card" style={{ overflow: 'hidden', cursor: 'pointer', marginBottom: 24, opacity: admin && !featured.visible ? .6 : 1, transition: 'transform .15s, box-shadow .15s' }}
+                      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,.08)' }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none' }}>
+                      {featured.image_url ? (
+                        <img src={featured.image_url} alt={featured.title} style={{ width: '100%', aspectRatio: '16 / 7', objectFit: 'cover', display: 'block' }} />
+                      ) : (
+                        <div style={{ width: '100%', aspectRatio: '16 / 7', background: 'linear-gradient(135deg, #CC2200, #A01A00)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 60 }}>📰</div>
+                      )}
+                      <div style={{ padding: '22px 28px' }}>
+                        <div style={{ fontSize: 10, color: '#CC2200', fontFamily: 'monospace', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8, fontWeight: 600 }}>À LA UNE</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 8, color: '#111827', lineHeight: 1.3 }}>{featured.title}</div>
+                        {featured.content && <div style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.6, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', marginBottom: 10 }}>{featured.content}</div>}
+                        <div style={{ fontSize: 11, color: '#9ca3af', fontFamily: 'monospace' }}>{new Date(featured.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  </Link>
+
+                  {/* Actions admin sur le featured */}
+                  {admin && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: -16, marginBottom: 24, paddingLeft: 4, fontSize: 11, color: '#6b7280' }}>
+                      <button className={`toggle ${featured.visible ? 'on' : ''}`} onClick={() => toggleVisible(featured)} />
+                      <span>{featured.visible ? 'Visible' : 'Masqué'}</span>
+                      <button className="btn" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => openEdit(featured)}>Modifier</button>
+                      <button className="btn" style={{ fontSize: 11, padding: '3px 10px', color: '#dc2626', borderColor: '#fecaca' }} onClick={() => setDeleteTarget(featured)}>Supprimer</button>
+                    </div>
+                  )}
+
+                  {/* Grille des autres articles */}
+                  {rest.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
+                      {rest.map(n => (
+                        <div key={n.id} style={{ opacity: admin && !n.visible ? .6 : 1 }}>
+                          <Link to={`/news/${n.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                            <div className="card" style={{ overflow: 'hidden', cursor: 'pointer', transition: 'transform .15s, box-shadow .15s' }}
+                              onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,.08)' }}
+                              onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none' }}>
+                              {n.image_url ? (
+                                <img src={n.image_url} alt={n.title} style={{ width: '100%', aspectRatio: '16 / 9', objectFit: 'cover', display: 'block' }} />
+                              ) : (
+                                <div style={{ width: '100%', aspectRatio: '16 / 9', background: 'linear-gradient(135deg, #CC2200, #A01A00)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36 }}>📰</div>
+                              )}
+                              <div style={{ padding: '14px 16px' }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: '#111827', lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{n.title}</div>
+                                <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>{new Date(n.created_at).toLocaleDateString('fr-FR')}</div>
+                              </div>
+                            </div>
+                          </Link>
+                          {admin && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 10, color: '#6b7280' }}>
+                              <button className={`toggle ${n.visible ? 'on' : ''}`} onClick={() => toggleVisible(n)} />
+                              <span>{n.visible ? 'Visible' : 'Masqué'}</span>
+                              <button className="btn" style={{ fontSize: 10, padding: '2px 8px', marginLeft: 'auto' }} onClick={() => openEdit(n)}>✎</button>
+                              <button className="btn" style={{ fontSize: 10, padding: '2px 8px', color: '#dc2626', borderColor: '#fecaca' }} onClick={() => setDeleteTarget(n)}>✕</button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
+              )
+            })()
       }
 
       <ConfirmModal open={!!deleteTarget} title="Supprimer l'article" message={`Confirmez-vous la suppression de "${deleteTarget?.title}" ?`} confirmLabel="Supprimer" danger onConfirm={confirmDelete} onCancel={() => setDeleteTarget(null)} />
