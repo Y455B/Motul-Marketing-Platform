@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import JSZip from 'jszip'
 import Layout from '../components/Layout'
 import { useToast, Toast } from '../lib/useToast.jsx'
 import { supabase, isAdmin, createNotification } from '../lib/supabase'
@@ -40,6 +41,10 @@ export default function Library({ user }) {
   const [rejectTarget, setRejectTarget] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null) // null = pas de recherche, [] = recherche vide
+  const [searching, setSearching] = useState(false)
+  const [downloadingFolder, setDownloadingFolder] = useState(null)
+  const searchTimer = useRef(null)
   const fileInputRef = useRef()
   const { toast, showToast } = useToast()
   const admin = isAdmin(user)
@@ -149,22 +154,8 @@ export default function Library({ user }) {
   // Supprimer un dossier et tout son contenu récursivement
   const deleteFolder = async (folderName) => {
     const folderPath = `${currentStoragePath()}/${folderName}`
-    const collectAllFiles = async (path) => {
-      const { data } = await supabase.storage.from(BUCKET).list(path, { limit: 500 })
-      if (!data) return []
-      let files = []
-      for (const item of data) {
-        if (item.id) {
-          files.push(`${path}/${item.name}`)
-        } else {
-          const sub = await collectAllFiles(`${path}/${item.name}`)
-          files = [...files, ...sub]
-        }
-      }
-      return files
-    }
     const allFiles = await collectAllFiles(folderPath)
-    const toRemove = allFiles.length > 0 ? allFiles : []
+    const toRemove = allFiles.map(f => f.path)
     toRemove.push(`${folderPath}/.keep`)
     const { error } = await supabase.storage.from(BUCKET).remove(toRemove)
     if (error) { showToast(error.message, 'error'); return }
@@ -203,13 +194,77 @@ export default function Library({ user }) {
     a.click()
   }
 
-  // Filtrer dossiers et fichiers par recherche
-  const filteredFolders = searchQuery
-    ? folders.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
-    : folders
-  const filteredDocs = searchQuery
-    ? docs.filter(f => f.name.replace(/^\d+_/, '').toLowerCase().includes(searchQuery.toLowerCase()))
-    : docs
+  // Télécharger un fichier par chemin complet (pour résultats de recherche)
+  const downloadByPath = async (fullPath) => {
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(fullPath, 3600)
+    if (error) { showToast(error.message, 'error'); return }
+    const fileName = fullPath.split('/').pop().replace(/^\d+_/, '')
+    const a = document.createElement('a'); a.href = data.signedUrl; a.download = fileName; a.click()
+  }
+
+  // Collecter tous les fichiers récursivement (réutilisable)
+  const collectAllFiles = async (path) => {
+    const { data } = await supabase.storage.from(BUCKET).list(path, { limit: 500 })
+    if (!data) return []
+    let files = []
+    for (const item of data) {
+      if (item.id) {
+        if (item.name !== '.keep') files.push({ name: item.name, path: `${path}/${item.name}` })
+      } else if (item.name !== '.emptyFolderPlaceholder') {
+        const sub = await collectAllFiles(`${path}/${item.name}`)
+        files = [...files, ...sub]
+      }
+    }
+    return files
+  }
+
+  // Recherche globale récursive avec debounce
+  const runGlobalSearch = useCallback(async (query) => {
+    if (!query || query.length < 2) { setSearchResults(null); setSearching(false); return }
+    setSearching(true)
+    const allFiles = await collectAllFiles(BASE)
+    const q = query.toLowerCase()
+    const results = allFiles.filter(f => f.name.replace(/^\d+_/, '').toLowerCase().includes(q))
+    setSearchResults(results)
+    setSearching(false)
+  }, [])
+
+  // Debounce la recherche (400ms après la dernière frappe)
+  const handleSearchChange = (e) => {
+    const val = e.target.value
+    setSearchQuery(val)
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    if (!val || val.length < 2) { setSearchResults(null); setSearching(false); return }
+    setSearching(true)
+    searchTimer.current = setTimeout(() => runGlobalSearch(val), 400)
+  }
+
+  // Télécharger tout un dossier en ZIP
+  const downloadFolderAsZip = async (folderName) => {
+    setDownloadingFolder(folderName)
+    const folderPath = `${currentStoragePath()}/${folderName}`
+    const allFiles = await collectAllFiles(folderPath)
+    if (allFiles.length === 0) { showToast('Dossier vide', 'error'); setDownloadingFolder(null); return }
+    const zip = new JSZip()
+    let downloaded = 0
+    for (const file of allFiles) {
+      const { data: urlData } = await supabase.storage.from(BUCKET).createSignedUrl(file.path, 300)
+      if (!urlData?.signedUrl) continue
+      const resp = await fetch(urlData.signedUrl)
+      if (!resp.ok) continue
+      const blob = await resp.blob()
+      // Chemin relatif dans le zip (sans le préfixe storage)
+      const relativePath = file.path.replace(folderPath + '/', '').replace(/^\d+_/, '')
+      zip.file(relativePath, blob)
+      downloaded++
+    }
+    if (downloaded === 0) { showToast('Impossible de télécharger les fichiers', 'error'); setDownloadingFolder(null); return }
+    const content = await zip.generateAsync({ type: 'blob' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(content); a.download = `${folderName}.zip`; a.click()
+    URL.revokeObjectURL(a.href)
+    showToast(`${downloaded} fichier(s) téléchargés en ZIP`)
+    setDownloadingFolder(null)
+  }
 
   // Breadcrumb (rendu inline, pas un composant)
   const breadcrumb = (
@@ -235,16 +290,19 @@ export default function Library({ user }) {
       {breadcrumb}
       {/* Barre de recherche + actions */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        {pathSegments.length > 0 && (
+        {pathSegments.length > 0 && !searchResults && (
           <button className="btn" onClick={goUp}>← Retour</button>
         )}
         <input
           value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          placeholder="Rechercher un fichier ou dossier..."
+          onChange={handleSearchChange}
+          placeholder="Rechercher dans toute la bibliothèque..."
           style={{ flex: 1, minWidth: 180, maxWidth: 320 }}
         />
-        {canUpload && (
+        {searchQuery && (
+          <button className="btn" onClick={() => { setSearchQuery(''); setSearchResults(null) }} style={{ padding: '0 10px', fontSize: 13 }}>✕</button>
+        )}
+        {canUpload && !searchResults && (
           <>
             <button className="btn" onClick={() => setShowNewFolder(true)}>📁 Nouveau sous-dossier</button>
             <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
@@ -255,71 +313,114 @@ export default function Library({ user }) {
         )}
       </div>
 
-      {/* Création dossier inline */}
-      {showNewFolder && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <input
-            value={newFolderName}
-            onChange={e => setNewFolderName(e.target.value)}
-            placeholder="Nom du sous-dossier"
-            autoFocus
-            onKeyDown={e => e.key === 'Enter' && createFolder()}
-            style={{ maxWidth: 300 }}
-          />
-          <button className="btn btn-primary" onClick={createFolder}>Créer</button>
-          <button className="btn" onClick={() => { setShowNewFolder(false); setNewFolderName('') }}>Annuler</button>
-        </div>
-      )}
-
-      {/* Liste dossiers */}
-      {filteredFolders.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 8, marginBottom: 12 }}>
-          {filteredFolders.map(f => (
-            <div key={f.name} className="card" style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 8, transition: 'border-color .15s', position: 'relative' }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = '#CC2200'}
-              onMouseLeave={e => e.currentTarget.style.borderColor = '#e5e7eb'}>
-              <span style={{ fontSize: 22, cursor: 'pointer' }} onClick={() => goInto(f.name)}>📁</span>
-              <div style={{ flex: 1, overflow: 'hidden', cursor: 'pointer' }} onClick={() => goInto(f.name)}>
-                <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
-                <div style={{ fontSize: 10, color: '#9ca3af' }}>Ouvrir →</div>
-              </div>
-              {canUpload && (
-                <button
-                  className="btn"
-                  style={{ width: 24, height: 24, padding: 0, fontSize: 11, color: '#dc2626', flexShrink: 0 }}
-                  title="Supprimer le dossier"
-                  onClick={e => { e.stopPropagation(); if (window.confirm(`Supprimer le dossier "${f.name}" et tout son contenu ?`)) deleteFolder(f.name) }}
-                >✕</button>
-              )}
+      {/* Résultats de recherche globale */}
+      {searchResults !== null ? (
+        <div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+            {searching ? 'Recherche en cours...' : `${searchResults.length} résultat(s) dans toute la bibliothèque`}
+          </div>
+          {searchResults.length === 0 && !searching && (
+            <div style={{ padding: 28, textAlign: 'center', fontSize: 12, color: '#9ca3af', background: '#f9fafb', borderRadius: 10, border: '0.5px dashed #e5e7eb' }}>
+              Aucun résultat pour "{searchQuery}".
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Liste fichiers */}
-      {filteredDocs.length === 0 && filteredFolders.length === 0 && (
-        <div style={{ padding: 28, textAlign: 'center', fontSize: 12, color: '#9ca3af', background: '#f9fafb', borderRadius: 10, border: '0.5px dashed #e5e7eb' }}>
-          {searchQuery ? 'Aucun résultat pour cette recherche.' : canUpload ? 'Dossier vide · Ajoutez des fichiers ou créez un sous-dossier' : 'Aucun document disponible dans ce dossier.'}
-        </div>
-      )}
-      {filteredDocs.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {filteredDocs.map(f => (
-            <div key={f.id || f.name} className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 20, flexShrink: 0 }}>{getIcon(f.name)}</span>
-              <div style={{ flex: 1, overflow: 'hidden' }}>
-                <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name.replace(/^\d+_/, '')}</div>
-                <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>{getExt(f.name).toUpperCase()}</div>
-              </div>
-              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13 }} onClick={() => openPreview(f)} title="Aperçu">👁</button>
-                <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13 }} onClick={() => downloadFile(f.name)} title="Télécharger">⬇</button>
-                <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13 }} onClick={() => copyLink(f.name)} title="Copier lien">🔗</button>
-                {canUpload && <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13, color: '#dc2626' }} onClick={() => deleteDoc(f.name)} title="Supprimer">✕</button>}
-              </div>
+          )}
+          {searchResults.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {searchResults.map(f => (
+                <div key={f.path} className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20, flexShrink: 0 }}>{getIcon(f.name)}</span>
+                  <div style={{ flex: 1, overflow: 'hidden' }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name.replace(/^\d+_/, '')}</div>
+                    <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>
+                      {f.path.replace(BASE + '/', '').replace('/' + f.name, '')} · {getExt(f.name).toUpperCase()}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                    <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13 }} onClick={() => downloadByPath(f.path)} title="Télécharger">⬇</button>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
+      ) : (
+        <>
+          {/* Création dossier inline */}
+          {showNewFolder && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <input
+                value={newFolderName}
+                onChange={e => setNewFolderName(e.target.value)}
+                placeholder="Nom du sous-dossier"
+                autoFocus
+                onKeyDown={e => e.key === 'Enter' && createFolder()}
+                style={{ maxWidth: 300 }}
+              />
+              <button className="btn btn-primary" onClick={createFolder}>Créer</button>
+              <button className="btn" onClick={() => { setShowNewFolder(false); setNewFolderName('') }}>Annuler</button>
+            </div>
+          )}
+
+          {/* Liste dossiers */}
+          {folders.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px,1fr))', gap: 8, marginBottom: 12 }}>
+              {folders.map(f => (
+                <div key={f.name} className="card" style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 8, transition: 'border-color .15s' }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = '#CC2200'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = '#e5e7eb'}>
+                  <span style={{ fontSize: 22, cursor: 'pointer' }} onClick={() => goInto(f.name)}>📁</span>
+                  <div style={{ flex: 1, overflow: 'hidden', cursor: 'pointer' }} onClick={() => goInto(f.name)}>
+                    <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
+                    <div style={{ fontSize: 10, color: '#9ca3af' }}>Ouvrir →</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+                    <button
+                      className="btn"
+                      style={{ width: 26, height: 26, padding: 0, fontSize: 12 }}
+                      title="Télécharger le dossier (ZIP)"
+                      disabled={downloadingFolder === f.name}
+                      onClick={e => { e.stopPropagation(); downloadFolderAsZip(f.name) }}
+                    >{downloadingFolder === f.name ? '⏳' : '⬇'}</button>
+                    {canUpload && (
+                      <button
+                        className="btn"
+                        style={{ width: 26, height: 26, padding: 0, fontSize: 11, color: '#dc2626' }}
+                        title="Supprimer le dossier"
+                        onClick={e => { e.stopPropagation(); if (window.confirm(`Supprimer le dossier "${f.name}" et tout son contenu ?`)) deleteFolder(f.name) }}
+                      >✕</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Liste fichiers */}
+          {docs.length === 0 && folders.length === 0 && (
+            <div style={{ padding: 28, textAlign: 'center', fontSize: 12, color: '#9ca3af', background: '#f9fafb', borderRadius: 10, border: '0.5px dashed #e5e7eb' }}>
+              {canUpload ? 'Dossier vide · Ajoutez des fichiers ou créez un sous-dossier' : 'Aucun document disponible dans ce dossier.'}
+            </div>
+          )}
+          {docs.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {docs.map(f => (
+                <div key={f.id || f.name} className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20, flexShrink: 0 }}>{getIcon(f.name)}</span>
+                  <div style={{ flex: 1, overflow: 'hidden' }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name.replace(/^\d+_/, '')}</div>
+                    <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>{getExt(f.name).toUpperCase()}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                    <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13 }} onClick={() => openPreview(f)} title="Aperçu">👁</button>
+                    <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13 }} onClick={() => downloadFile(f.name)} title="Télécharger">⬇</button>
+                    <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13 }} onClick={() => copyLink(f.name)} title="Copier lien">🔗</button>
+                    {canUpload && <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13, color: '#dc2626' }} onClick={() => deleteDoc(f.name)} title="Supprimer">✕</button>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
