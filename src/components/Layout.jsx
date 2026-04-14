@@ -205,7 +205,7 @@ export default function Layout({ children, user }) {
               </a>
             </div>
             <div className="sidebar-copy">
-              © 2025 Motul Africa<br/>
+              © 2026 Motul Africa<br/>
               Powered by Declic Agency
             </div>
           </div>
