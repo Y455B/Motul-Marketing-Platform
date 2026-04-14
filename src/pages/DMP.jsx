@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Layout from '../components/Layout'
 import { ConfirmModal } from '../components/ConfirmModal'
 import { useToast, Toast } from '../lib/useToast.jsx'
@@ -8,6 +8,7 @@ const CATEGORIES = ['Activation terrain', 'Merchandising', 'Événement', 'Digit
 const STATUS_LABELS = { pending: 'En attente', approved: 'Validée', rejected: 'Rejetée', archived: 'Archive' }
 const STATUS_CLASS = { pending: 'badge-pending', approved: 'badge-ok', rejected: 'badge-ko', archived: 'badge-arch' }
 const EMPTY_FORM = { title: '', company: '', demandeur: '', category: '', budget: '', launch_date: '', comment: '' }
+const BUCKET = 'platform-files'
 
 export default function DMP({ user }) {
   const [items, setItems] = useState([])
@@ -21,6 +22,10 @@ export default function DMP({ user }) {
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [formFiles, setFormFiles] = useState([])
+  const [selectedFiles, setSelectedFiles] = useState([])
+  const [loadingFiles, setLoadingFiles] = useState(false)
+  const fileInputRef = useRef()
   const { toast, showToast } = useToast()
   const admin = isAdmin(user)
 
@@ -69,17 +74,37 @@ export default function DMP({ user }) {
   const submitNew = async (e) => {
     e.preventDefault()
     setSubmitting(true)
+    const reqId = generateId()
     const { error } = await supabase.from('dmp_requests').insert({
-      id: generateId(), ...form, budget: Number(form.budget), status: 'pending', user_id: user?.id
+      id: reqId, ...form, budget: Number(form.budget), status: 'pending', user_id: user?.id
     })
-    if (error) showToast(error.message, 'error')
-    else {
-      setSubmitted(true)
-      // Notifier les admins — on récupère les admins via auth.users (limitation : on notifie l'utilisateur lui-même pour confirmation)
-      await createNotification(user?.id, 'DMP_SOUMISE', `Votre demande "${form.title}" a bien été transmise et est en attente de validation.`)
-      load()
+    if (error) { showToast(error.message, 'error'); setSubmitting(false); return }
+    // Upload des pièces jointes
+    if (formFiles.length > 0) {
+      for (const file of formFiles) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+        await supabase.storage.from(BUCKET).upload(`dmp/${reqId}/${safeName}`, file, { upsert: false })
+      }
     }
+    setSubmitted(true)
+    await createNotification(user?.id, 'DMP_SOUMISE', `Votre demande "${form.title}" a bien été transmise et est en attente de validation.`)
+    setFormFiles([])
+    load()
     setSubmitting(false)
+  }
+
+  // Charger les PJ d'une demande depuis le storage
+  const loadFiles = async (reqId) => {
+    setLoadingFiles(true)
+    const { data } = await supabase.storage.from(BUCKET).list(`dmp/${reqId}`, { limit: 50 })
+    setSelectedFiles((data || []).filter(f => f.name !== '.keep' && f.name !== '.emptyFolderPlaceholder'))
+    setLoadingFiles(false)
+  }
+
+  const downloadDmpFile = async (reqId, fileName) => {
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(`dmp/${reqId}/${fileName}`, 3600)
+    if (error) { showToast(error.message, 'error'); return }
+    const a = document.createElement('a'); a.href = data.signedUrl; a.download = fileName; a.click()
   }
 
   if (view === 'new') return (
@@ -110,7 +135,13 @@ export default function DMP({ user }) {
               <div><label className="form-label">Budget (MAD) <span className="form-req">*</span></label><input type="number" required min="1" value={form.budget} onChange={e => setForm(p => ({ ...p, budget: e.target.value }))} placeholder="Ex: 50000" /></div>
               <div><label className="form-label">Date de lancement <span className="form-req">*</span></label><input type="date" required value={form.launch_date} onChange={e => setForm(p => ({ ...p, launch_date: e.target.value }))} /></div>
               <div className="form-full"><label className="form-label">Commentaire</label><textarea value={form.comment} onChange={e => setForm(p => ({ ...p, comment: e.target.value }))} rows={3} /></div>
-              <div className="form-full"><label className="form-label">Documents <span className="form-req">*</span></label><input type="file" multiple /></div>
+              <div className="form-full">
+                <label className="form-label">Documents</label>
+                <input ref={fileInputRef} type="file" multiple onChange={e => setFormFiles(Array.from(e.target.files))} />
+                {formFiles.length > 0 && (
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>{formFiles.length} fichier(s) sélectionné(s)</div>
+                )}
+              </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
               <button type="button" className="btn" onClick={() => setView('list')}>Annuler</button>
@@ -170,7 +201,7 @@ export default function DMP({ user }) {
             : filtered.map(d => (
               <div key={d.id} className="table-row"
                 style={{ gridTemplateColumns: admin ? '2fr 100px 110px 110px 90px 80px' : '2fr 110px 110px 90px', cursor: admin ? 'pointer' : 'default' }}
-                onClick={() => admin && setSelected(d)}>
+                onClick={() => { if (admin) { setSelected(d); loadFiles(d.id) } }}>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 500 }}>{d.title}</div>
                   <div style={{ fontSize: 11, color: '#9ca3af' }}>{d.company} · {d.id}</div>
@@ -194,11 +225,11 @@ export default function DMP({ user }) {
 
       {/* Modale détail DMP */}
       {selected && (
-        <div className="modal-overlay" onClick={() => setSelected(null)}>
+        <div className="modal-overlay" onClick={() => { setSelected(null); setSelectedFiles([]) }}>
           <div className="modal" style={{ maxWidth: 480, width: '100%' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <div style={{ fontSize: 15, fontWeight: 600, paddingRight: 10 }}>{selected.title}</div>
-              <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af', flexShrink: 0 }}>✕</button>
+              <button onClick={() => { setSelected(null); setSelectedFiles([]) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af', flexShrink: 0 }}>✕</button>
             </div>
             <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 18 }}>{selected.id}</div>
             <span className={`badge ${STATUS_CLASS[selected.status] || 'badge-arch'}`} style={{ marginBottom: 14, display: 'inline-block' }}>{STATUS_LABELS[selected.status] || selected.status}</span>
@@ -209,6 +240,25 @@ export default function DMP({ user }) {
               </div>
             ))}
             {selected.comment && <div style={{ marginBottom: 12 }}><div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 3 }}>COMMENTAIRE</div><div style={{ fontSize: 13 }}>{selected.comment}</div></div>}
+            {/* Pièces jointes */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 6 }}>PIÈCES JOINTES</div>
+              {loadingFiles ? (
+                <div style={{ fontSize: 12, color: '#9ca3af' }}>Chargement...</div>
+              ) : selectedFiles.length === 0 ? (
+                <div style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Aucune pièce jointe</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {selectedFiles.map(f => (
+                    <div key={f.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#f9fafb', borderRadius: 6, border: '0.5px solid #e5e7eb' }}>
+                      <span style={{ fontSize: 14 }}>📎</span>
+                      <div style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
+                      <button className="btn" style={{ height: 24, padding: '0 8px', fontSize: 11 }} onClick={() => downloadDmpFile(selected.id, f.name)}>⬇</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             {selected.status === 'rejected' && selected.motif && (
               <div style={{ background: '#FFF0ED', borderLeft: '3px solid #CC2200', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>
                 <div style={{ fontSize: 10, fontFamily: 'monospace', color: '#CC2200', marginBottom: 4 }}>MOTIF DE REFUS</div>
