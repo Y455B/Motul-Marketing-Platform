@@ -8,6 +8,8 @@ export default function Home({ user }) {
   const [news, setNews] = useState([])
   const [stats, setStats] = useState({ dmp: 0, library: 0, newsletter: 0 })
   const [activeSlider, setActiveSlider] = useState(0)
+  const [nlEmail, setNlEmail] = useState('')
+  const [nlStatus, setNlStatus] = useState(null) // null | 'sending' | 'done' | 'already' | 'error'
   const admin = isAdmin(user)
 
   useEffect(() => {
@@ -142,6 +144,48 @@ export default function Home({ user }) {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+      {/* Newsletter — utilisateurs non-admin */}
+      {!admin && (
+        <div style={{ marginTop: 28 }}>
+          <div className="card" style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 4 }}>Newsletter Motul Africa</div>
+              <div style={{ fontSize: 12, color: '#6b7280' }}>Recevez les dernières actualités et offres Motul directement dans votre boîte mail.</div>
+            </div>
+            {nlStatus === 'done' ? (
+              <div style={{ fontSize: 12, color: '#166534', background: '#dcfce7', padding: '8px 14px', borderRadius: 6, fontWeight: 500 }}>✓ Inscription confirmée</div>
+            ) : nlStatus === 'already' ? (
+              <div style={{ fontSize: 12, color: '#D97706', background: '#FEF3C7', padding: '8px 14px', borderRadius: 6, fontWeight: 500 }}>Vous êtes déjà inscrit(e)</div>
+            ) : (
+              <form onSubmit={async (e) => {
+                e.preventDefault()
+                setNlStatus('sending')
+                const email = nlEmail || user?.email
+                if (!email) return
+                const { error } = await supabase.from('newsletter_subscribers').insert({
+                  email, nom: user?.user_metadata?.nom || '', prenom: user?.user_metadata?.prenom || '', entreprise: user?.user_metadata?.entreprise || ''
+                })
+                if (error) {
+                  if (error.code === '23505') setNlStatus('already')
+                  else setNlStatus('error')
+                } else setNlStatus('done')
+              }} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="email"
+                  value={nlEmail}
+                  onChange={e => setNlEmail(e.target.value)}
+                  placeholder={user?.email || 'votre@email.com'}
+                  required
+                  style={{ width: 220, fontSize: 12 }}
+                />
+                <button type="submit" className="btn btn-primary" style={{ fontSize: 12, whiteSpace: 'nowrap' }} disabled={nlStatus === 'sending'}>
+                  {nlStatus === 'sending' ? 'Envoi...' : "S'inscrire"}
+                </button>
+              </form>
+            )}
           </div>
         </div>
       )}
