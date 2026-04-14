@@ -9,6 +9,7 @@ import { Hub } from './pages/Hub'
 import DMP from './pages/DMP'
 import Library from './pages/Library'
 import News from './pages/News'
+import NewsDetail from './pages/NewsDetail'
 import Sliders from './pages/Sliders'
 import Newsletter from './pages/Newsletter'
 import Account from './pages/Account'
@@ -65,6 +66,7 @@ export default function App() {
         <Route path="/dmp" element={<P><DMP user={user} /></P>} />
         <Route path="/library" element={<P><Library user={user} /></P>} />
         <Route path="/news" element={<P><News user={user} /></P>} />
+        <Route path="/news/:id" element={<P><NewsDetail user={user} /></P>} />
         <Route path="/account" element={<P><Account user={user} /></P>} />
         <Route path="/sliders" element={<P>{admin ? <Sliders user={user} /> : <Navigate to="/home" replace />}</P>} />
         <Route path="/newsletter" element={<P>{admin ? <Newsletter user={user} /> : <Navigate to="/home" replace />}</P>} />

@@ -6,7 +6,7 @@ import { supabase, isAdmin } from '../lib/supabase'
 export default function Home({ user }) {
   const [sliders, setSliders] = useState([])
   const [news, setNews] = useState([])
-  const [stats, setStats] = useState({ dmp: 0, library: 0, newsletter: 0 })
+  const [stats, setStats] = useState({ library: 0, newsletter: 0 })
   const [activeSlider, setActiveSlider] = useState(0)
   const [nlEmail, setNlEmail] = useState('')
   const [nlStatus, setNlStatus] = useState(null) // null | 'sending' | 'done' | 'already' | 'error'
@@ -19,10 +19,9 @@ export default function Home({ user }) {
       .then(({ data }) => setNews(data || []))
     if (admin) {
       Promise.all([
-        supabase.from('dmp_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
         supabase.from('library_requests').select('id', { count: 'exact', head: true }).eq('access_granted', false).eq('rejected', false),
         supabase.from('newsletter_subscribers').select('id', { count: 'exact', head: true }),
-      ]).then(([dmp, lib, nl]) => setStats({ dmp: dmp.count || 0, library: lib.count || 0, newsletter: nl.count || 0 }))
+      ]).then(([lib, nl]) => setStats({ library: lib.count || 0, newsletter: nl.count || 0 }))
     }
   }, [admin])
 
@@ -33,7 +32,7 @@ export default function Home({ user }) {
   }, [sliders.length])
 
   const SHORTCUTS = [
-    { label: 'Actions Marketing', sub: 'Soumettre une demande', path: '/dmp', icon: '◈', color: '#CC2200' },
+    { label: 'Actions Marketing', sub: "Outil Motul International", path: '/dmp', icon: '◈', color: '#CC2200' },
     { label: 'Motul Library', sub: 'Accéder aux ressources', path: '/library', icon: '📚', color: '#2A5FA8' },
     { label: 'Actualités', sub: 'Dernières nouvelles', path: '/news', icon: '📰', color: '#059669' },
   ]
@@ -54,7 +53,11 @@ export default function Home({ user }) {
                 <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 4, textShadow: '0 1px 4px rgba(0,0,0,.5)' }}>{s.title}</div>
                 {s.subtitle && <div style={{ fontSize: 13, color: 'rgba(255,255,255,.85)', fontWeight: 500, marginBottom: s.btn_label ? 12 : 0 }}>{s.subtitle}</div>}
                 {s.btn_label && s.btn_url && (
-                  <a href={s.btn_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', background: '#CC2200', color: '#fff', fontSize: 12, padding: '6px 16px', borderRadius: 6, fontWeight: 500, cursor: 'pointer', textDecoration: 'none' }}>{s.btn_label}</a>
+                  s.btn_url.startsWith('/') ? (
+                    <Link to={s.btn_url} style={{ display: 'inline-block', background: '#CC2200', color: '#fff', fontSize: 12, padding: '6px 16px', borderRadius: 6, fontWeight: 500, cursor: 'pointer', textDecoration: 'none' }}>{s.btn_label}</Link>
+                  ) : (
+                    <a href={s.btn_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', background: '#CC2200', color: '#fff', fontSize: 12, padding: '6px 16px', borderRadius: 6, fontWeight: 500, cursor: 'pointer', textDecoration: 'none' }}>{s.btn_label}</a>
+                  )
                 )}
               </div>
             </div>
@@ -80,13 +83,7 @@ export default function Home({ user }) {
       {admin && (
         <div style={{ marginBottom: 24 }}>
           <div className="section-title">Vue d'ensemble</div>
-          <div className="stat-grid stat-grid-3">
-            <Link to="/dmp" style={{ textDecoration: 'none' }}>
-              <div className="stat-card" style={{ borderLeft: '3px solid #D97706', cursor: 'pointer' }}>
-                <div className="stat-label">DMP en attente</div>
-                <div className="stat-val" style={{ color: '#D97706' }}>{stats.dmp}</div>
-              </div>
-            </Link>
+          <div className="stat-grid stat-grid-2">
             <Link to="/library" style={{ textDecoration: 'none' }}>
               <div className="stat-card" style={{ borderLeft: '3px solid #2A5FA8', cursor: 'pointer' }}>
                 <div className="stat-label">Demandes Library</div>
@@ -123,26 +120,30 @@ export default function Home({ user }) {
         </div>
       </div>
 
-      {/* Actualités */}
+      {/* Actualités — cards image-first */}
       {news.length > 0 && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <div className="section-title" style={{ marginBottom: 0 }}>Dernières actualités</div>
-            <Link to="/news" style={{ fontSize: 12, color: '#CC2200', textDecoration: 'none' }}>Voir tout →</Link>
+            <Link to="/news" style={{ fontSize: 12, color: '#CC2200', textDecoration: 'none', fontWeight: 500 }}>Voir tout →</Link>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {news.map(n => (
-              <div key={n.id} className="card" style={{ padding: '14px 18px', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                {n.image_url
-                  ? <img src={n.image_url} alt={n.title} style={{ width: 60, height: 60, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
-                  : <div style={{ width: 60, height: 60, borderRadius: 8, background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>📰</div>
-                }
-                <div style={{ flex: 1, overflow: 'hidden' }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', marginBottom: 3 }}>{n.title}</div>
-                  {n.content && <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{n.content}</div>}
-                  <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginTop: 5 }}>{new Date(n.created_at).toLocaleDateString('fr-FR')}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+            {news.slice(0, 4).map(n => (
+              <Link key={n.id} to={`/news/${n.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                <div className="card" style={{ overflow: 'hidden', cursor: 'pointer', transition: 'transform .15s, box-shadow .15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,.08)' }}
+                  onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none' }}>
+                  {n.image_url ? (
+                    <img src={n.image_url} alt={n.title} style={{ width: '100%', aspectRatio: '16 / 9', objectFit: 'cover', display: 'block' }} />
+                  ) : (
+                    <div style={{ width: '100%', aspectRatio: '16 / 9', background: 'linear-gradient(135deg, #CC2200, #A01A00)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>📰</div>
+                  )}
+                  <div style={{ padding: '12px 14px' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{n.title}</div>
+                    <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginTop: 6 }}>{new Date(n.created_at).toLocaleDateString('fr-FR')}</div>
+                  </div>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         </div>

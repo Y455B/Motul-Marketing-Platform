@@ -5,6 +5,19 @@ import { useToast, Toast } from '../lib/useToast.jsx'
 import { supabase } from '../lib/supabase'
 
 const EMPTY = { title: '', subtitle: '', btn_label: '', btn_url: '', visible: true }
+const LINK_TYPES = [
+  { value: 'external', label: 'URL externe' },
+  { value: 'library', label: 'Dossier Motul Library' },
+  { value: 'page', label: 'Page interne' }
+]
+const INTERNAL_PAGES = [
+  { path: '/home', label: 'Accueil' },
+  { path: '/dmp', label: 'Actions Marketing' },
+  { path: '/library', label: 'Motul Library' },
+  { path: '/news', label: 'Actualités' }
+]
+const BUCKET = 'platform-files'
+const BASE = 'library'
 
 export default function Sliders({ user }) {
   const [sliders, setSliders] = useState([])
@@ -16,7 +29,39 @@ export default function Sliders({ user }) {
   const [imagePreview, setImagePreview] = useState(null)
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [linkType, setLinkType] = useState('external')
+  const [libraryFolders, setLibraryFolders] = useState([])
+  const [selectedFolder, setSelectedFolder] = useState('')
+  const [selectedPage, setSelectedPage] = useState('/home')
   const { toast, showToast } = useToast()
+
+  // Charger récursivement tous les dossiers de la Library pour le dropdown
+  const loadLibraryFolders = async () => {
+    const collect = async (path, prefix = '') => {
+      const { data } = await supabase.storage.from(BUCKET).list(path, { limit: 200 })
+      if (!data) return []
+      let results = []
+      for (const item of data) {
+        if (!item.id && item.name !== '.emptyFolderPlaceholder') {
+          const displayPath = prefix ? `${prefix}/${item.name}` : item.name
+          results.push(displayPath)
+          const sub = await collect(`${path}/${item.name}`, displayPath)
+          results = [...results, ...sub]
+        }
+      }
+      return results
+    }
+    const folders = await collect(BASE)
+    setLibraryFolders(folders)
+  }
+
+  // Déterminer le type de lien à partir de l'URL stockée
+  const detectLinkType = (url) => {
+    if (!url) return 'external'
+    if (url.startsWith('/library?path=')) return 'library'
+    if (url.startsWith('/')) return 'page'
+    return 'external'
+  }
 
   const load = async () => {
     setLoading(true)
@@ -25,15 +70,24 @@ export default function Sliders({ user }) {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); loadLibraryFolders() }, [])
 
   const openNew = () => {
-    setForm(EMPTY); setEditId(null); setImageFile(null); setImagePreview(null); setShowForm(true)
+    setForm(EMPTY); setEditId(null); setImageFile(null); setImagePreview(null); setLinkType('external'); setSelectedFolder(''); setSelectedPage('/home'); setShowForm(true)
   }
 
   const openEdit = (s) => {
     setForm({ title: s.title, subtitle: s.subtitle || '', btn_label: s.btn_label || '', btn_url: s.btn_url || '', visible: s.visible })
-    setEditId(s.id); setImageFile(null); setImagePreview(s.image_url || null); setShowForm(true)
+    setEditId(s.id); setImageFile(null); setImagePreview(s.image_url || null)
+    const type = detectLinkType(s.btn_url)
+    setLinkType(type)
+    if (type === 'library') {
+      const folderPath = decodeURIComponent(s.btn_url.replace('/library?path=', ''))
+      setSelectedFolder(folderPath)
+    } else if (type === 'page') {
+      setSelectedPage(s.btn_url)
+    }
+    setShowForm(true)
   }
 
   const handleImageChange = (e) => {
@@ -59,7 +113,13 @@ export default function Sliders({ user }) {
       image_url = urlData.publicUrl
     }
 
-    const payload = { title: form.title, subtitle: form.subtitle, btn_label: form.btn_label, btn_url: form.btn_url, visible: form.visible, image_url }
+    // Construire l'URL de redirection selon le type choisi
+    let finalUrl = form.btn_url
+    if (linkType === 'library' && selectedFolder) finalUrl = `/library?path=${encodeURIComponent(selectedFolder)}`
+    else if (linkType === 'page') finalUrl = selectedPage
+    else if (linkType === 'external') finalUrl = form.btn_url
+
+    const payload = { title: form.title, subtitle: form.subtitle, btn_label: form.btn_label, btn_url: finalUrl, visible: form.visible, image_url }
 
     if (editId) {
       const { error } = await supabase.from('sliders').update(payload).eq('id', editId)
@@ -113,9 +173,34 @@ export default function Sliders({ user }) {
                 <input value={form.btn_label} onChange={e => setForm(p => ({ ...p, btn_label: e.target.value }))} placeholder="Ex: En savoir plus" />
               </div>
               <div>
-                <label className="form-label">URL de redirection</label>
-                <input type="url" value={form.btn_url} onChange={e => setForm(p => ({ ...p, btn_url: e.target.value }))} placeholder="https://..." />
+                <label className="form-label">Type de redirection</label>
+                <select value={linkType} onChange={e => setLinkType(e.target.value)}>
+                  {LINK_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
               </div>
+              {linkType === 'external' && (
+                <div className="form-full">
+                  <label className="form-label">URL externe</label>
+                  <input type="url" value={form.btn_url} onChange={e => setForm(p => ({ ...p, btn_url: e.target.value }))} placeholder="https://..." />
+                </div>
+              )}
+              {linkType === 'library' && (
+                <div className="form-full">
+                  <label className="form-label">Dossier Motul Library</label>
+                  <select value={selectedFolder} onChange={e => setSelectedFolder(e.target.value)}>
+                    <option value="">Sélectionner un dossier...</option>
+                    {libraryFolders.map(f => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                </div>
+              )}
+              {linkType === 'page' && (
+                <div className="form-full">
+                  <label className="form-label">Page interne</label>
+                  <select value={selectedPage} onChange={e => setSelectedPage(e.target.value)}>
+                    {INTERNAL_PAGES.map(p => <option key={p.path} value={p.path}>{p.label}</option>)}
+                  </select>
+                </div>
+              )}
               <div className="form-full">
                 <label className="form-label">Image <span style={{ fontSize: 10, color: '#9ca3af', fontWeight: 400 }}>· 1920×600px recommandé · max 2Mo</span></label>
                 <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageChange} />
