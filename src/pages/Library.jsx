@@ -203,8 +203,16 @@ export default function Library({ user }) {
     a.click()
   }
 
-  // Breadcrumb
-  const Breadcrumb = () => (
+  // Filtrer dossiers et fichiers par recherche
+  const filteredFolders = searchQuery
+    ? folders.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : folders
+  const filteredDocs = searchQuery
+    ? docs.filter(f => f.name.replace(/^\d+_/, '').toLowerCase().includes(searchQuery.toLowerCase()))
+    : docs
+
+  // Breadcrumb (rendu inline, pas un composant)
+  const breadcrumb = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, marginBottom: 12, flexWrap: 'wrap' }}>
       <span style={{ cursor: 'pointer', color: pathSegments.length === 0 ? '#CC2200' : '#6b7280', fontWeight: pathSegments.length === 0 ? 600 : 400 }} onClick={() => navigateTo([])}>
         📚 Motul Library
@@ -221,19 +229,11 @@ export default function Library({ user }) {
     </div>
   )
 
-  // Filtrer dossiers et fichiers par recherche
-  const filteredFolders = searchQuery
-    ? folders.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
-    : folders
-  const filteredDocs = searchQuery
-    ? docs.filter(f => f.name.replace(/^\d+_/, '').toLowerCase().includes(searchQuery.toLowerCase()))
-    : docs
-
-  // Contenu du niveau courant (dossiers + fichiers)
-  const FolderContent = ({ canUpload = false }) => (
+  // Rendu du contenu dossier (fonction, pas composant React)
+  const renderFolderContent = (canUpload) => (
     <div>
-      <Breadcrumb />
-      {/* Barre de recherche */}
+      {breadcrumb}
+      {/* Barre de recherche + actions */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         {pathSegments.length > 0 && (
           <button className="btn" onClick={goUp}>← Retour</button>
@@ -395,7 +395,7 @@ export default function Library({ user }) {
         {/* Bibliothèque */}
         <div>
           <div className="section-title">Contenu de la bibliothèque</div>
-          <FolderContent canUpload={true} />
+          {renderFolderContent(true)}
         </div>
       </div>
 
@@ -429,7 +429,7 @@ export default function Library({ user }) {
         <span>✅</span>
         <div style={{ fontSize: 13, fontWeight: 500, color: '#166534' }}>Vous avez accès à la Motul Library</div>
       </div>
-      <FolderContent canUpload={false} />
+      {renderFolderContent(false)}
       <PreviewModal />
       <Toast toast={toast} />
     </Layout>

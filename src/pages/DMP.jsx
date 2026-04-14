@@ -218,7 +218,7 @@ export default function DMP({ user }) {
             {selected.status === 'pending' && (
               <>
                 <div style={{ height: '0.5px', background: '#f3f4f6', margin: '16px 0' }} />
-                <label className="form-label">Motif de refus (si applicable)</label>
+                <label className="form-label">Motif de refus (si applicable) ou Commentaire de validation</label>
                 <textarea value={motifInput} onChange={e => setMotifInput(e.target.value)} placeholder="Saisissez le motif..." rows={3} style={{ marginBottom: 14 }} />
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="btn btn-success" onClick={() => validate(selected)}>✓ Valider</button>
