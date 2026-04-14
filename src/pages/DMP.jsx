@@ -156,7 +156,7 @@ export default function DMP({ user }) {
         </div>
       )}
 
-      <div className="table-card" style={{ position: 'relative' }}>
+      <div className="table-card">
         <div className="table-head" style={{ gridTemplateColumns: admin ? '2fr 100px 110px 110px 90px 80px' : '2fr 110px 110px 90px' }}>
           {(admin
             ? ['Action / Entreprise', 'Catégorie', 'Budget', 'Date lancement', 'Statut', 'Actions']
@@ -190,42 +190,45 @@ export default function DMP({ user }) {
             ))
         }
 
-        {selected && (
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.35)', display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', borderRadius: 12, zIndex: 10 }}>
-            <div style={{ width: 400, background: '#fff', borderRadius: '0 12px 12px 0', height: '100%', overflow: 'auto', padding: 24, boxShadow: '-4px 0 20px rgba(0,0,0,.1)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, paddingRight: 10 }}>{selected.title}</div>
-                <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af', flexShrink: 0 }}>✕</button>
-              </div>
-              <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 18 }}>{selected.id}</div>
-              {[['Entreprise', selected.company], ['Demandeur', selected.demandeur], ['Catégorie', selected.category], ['Date de lancement', selected.launch_date], ['Budget', `${Number(selected.budget).toLocaleString()} MAD`]].map(([k, v]) => (
-                <div key={k} style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 3, textTransform: 'uppercase' }}>{k}</div>
-                  <div style={{ fontSize: 13, fontWeight: k === 'Budget' ? 600 : 400 }}>{v}</div>
-                </div>
-              ))}
-              {selected.comment && <div style={{ marginBottom: 12 }}><div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 3 }}>COMMENTAIRE</div><div style={{ fontSize: 13 }}>{selected.comment}</div></div>}
-              {selected.status === 'rejected' && selected.motif && (
-                <div style={{ background: '#FFF0ED', borderLeft: '3px solid #CC2200', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>
-                  <div style={{ fontSize: 10, fontFamily: 'monospace', color: '#CC2200', marginBottom: 4 }}>MOTIF DE REFUS</div>
-                  {selected.motif}
-                </div>
-              )}
-              {selected.status === 'pending' && (
-                <>
-                  <div style={{ height: '0.5px', background: '#f3f4f6', margin: '16px 0' }} />
-                  <label className="form-label">Motif de refus (si applicable)</label>
-                  <textarea value={motifInput} onChange={e => setMotifInput(e.target.value)} placeholder="Saisissez le motif..." rows={3} style={{ marginBottom: 14 }} />
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn btn-success" onClick={() => validate(selected)}>✓ Valider</button>
-                    <button className="btn btn-danger" onClick={() => reject(selected)}>✕ Rejeter</button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
       </div>
+
+      {/* Modale détail DMP */}
+      {selected && (
+        <div className="modal-overlay" onClick={() => setSelected(null)}>
+          <div className="modal" style={{ maxWidth: 480, width: '100%' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, paddingRight: 10 }}>{selected.title}</div>
+              <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af', flexShrink: 0 }}>✕</button>
+            </div>
+            <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 18 }}>{selected.id}</div>
+            <span className={`badge ${STATUS_CLASS[selected.status] || 'badge-arch'}`} style={{ marginBottom: 14, display: 'inline-block' }}>{STATUS_LABELS[selected.status] || selected.status}</span>
+            {[['Entreprise', selected.company], ['Demandeur', selected.demandeur], ['Catégorie', selected.category], ['Date de lancement', selected.launch_date], ['Budget', `${Number(selected.budget).toLocaleString()} MAD`]].map(([k, v]) => (
+              <div key={k} style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 3, textTransform: 'uppercase' }}>{k}</div>
+                <div style={{ fontSize: 13, fontWeight: k === 'Budget' ? 600 : 400 }}>{v}</div>
+              </div>
+            ))}
+            {selected.comment && <div style={{ marginBottom: 12 }}><div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginBottom: 3 }}>COMMENTAIRE</div><div style={{ fontSize: 13 }}>{selected.comment}</div></div>}
+            {selected.status === 'rejected' && selected.motif && (
+              <div style={{ background: '#FFF0ED', borderLeft: '3px solid #CC2200', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontFamily: 'monospace', color: '#CC2200', marginBottom: 4 }}>MOTIF DE REFUS</div>
+                {selected.motif}
+              </div>
+            )}
+            {selected.status === 'pending' && (
+              <>
+                <div style={{ height: '0.5px', background: '#f3f4f6', margin: '16px 0' }} />
+                <label className="form-label">Motif de refus (si applicable)</label>
+                <textarea value={motifInput} onChange={e => setMotifInput(e.target.value)} placeholder="Saisissez le motif..." rows={3} style={{ marginBottom: 14 }} />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-success" onClick={() => validate(selected)}>✓ Valider</button>
+                  <button className="btn btn-danger" onClick={() => reject(selected)}>✕ Rejeter</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <ConfirmModal open={!!deleteTarget} title="Supprimer la demande" message={`Confirmez-vous la suppression de "${deleteTarget?.title}" ?`} confirmLabel="Supprimer" danger onConfirm={confirmDelete} onCancel={() => setDeleteTarget(null)} />
       <Toast toast={toast} />
