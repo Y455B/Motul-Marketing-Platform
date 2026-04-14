@@ -462,7 +462,7 @@ export default function Library({ user }) {
                     <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
                       <button
                         className="btn"
-                        style={{ width: 28, height: 28, padding: 0, fontSize: 12, background: 'rgba(255,255,255,.95)', border: 'none' }}
+                        style={{ width: 28, height: 28, padding: 0, fontSize: 12, background: 'rgba(255,255,255,.95)', border: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}
                         title="Télécharger le dossier (ZIP)"
                         disabled={downloadingFolder === f.name}
                         onClick={() => downloadFolderAsZip(f.name)}
@@ -470,7 +470,7 @@ export default function Library({ user }) {
                       {canUpload && (
                         <button
                           className="btn"
-                          style={{ width: 28, height: 28, padding: 0, fontSize: 11, background: 'rgba(255,255,255,.95)', color: '#dc2626', border: 'none' }}
+                          style={{ width: 28, height: 28, padding: 0, fontSize: 11, background: 'rgba(255,255,255,.95)', color: '#dc2626', border: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}
                           title="Supprimer le dossier"
                           onClick={() => { if (window.confirm(`Supprimer le dossier "${f.name}" et tout son contenu ?`)) deleteFolder(f.name) }}
                         >✕</button>
