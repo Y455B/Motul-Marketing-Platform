@@ -209,8 +209,9 @@ export default function Library({ user }) {
     let files = []
     for (const item of data) {
       if (item.id) {
-        if (item.name !== '.keep') files.push({ name: item.name, path: `${path}/${item.name}` })
+        if (item.name !== '.keep') files.push({ name: item.name, path: `${path}/${item.name}`, type: 'file' })
       } else if (item.name !== '.emptyFolderPlaceholder') {
+        files.push({ name: item.name, path: `${path}/${item.name}`, type: 'folder' })
         const sub = await collectAllFiles(`${path}/${item.name}`)
         files = [...files, ...sub]
       }
@@ -222,9 +223,9 @@ export default function Library({ user }) {
   const runGlobalSearch = useCallback(async (query) => {
     if (!query || query.length < 2) { setSearchResults(null); setSearching(false); return }
     setSearching(true)
-    const allFiles = await collectAllFiles(BASE)
+    const allItems = await collectAllFiles(BASE)
     const q = query.toLowerCase()
-    const results = allFiles.filter(f => f.name.replace(/^\d+_/, '').toLowerCase().includes(q))
+    const results = allItems.filter(f => f.name.replace(/^\d+_/, '').toLowerCase().includes(q))
     setSearchResults(results)
     setSearching(false)
   }, [])
@@ -328,15 +329,22 @@ export default function Library({ user }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {searchResults.map(f => (
                 <div key={f.path} className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 20, flexShrink: 0 }}>{getIcon(f.name)}</span>
+                  <span style={{ fontSize: 20, flexShrink: 0 }}>{f.type === 'folder' ? '📁' : getIcon(f.name)}</span>
                   <div style={{ flex: 1, overflow: 'hidden' }}>
                     <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name.replace(/^\d+_/, '')}</div>
                     <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>
-                      {f.path.replace(BASE + '/', '').replace('/' + f.name, '')} · {getExt(f.name).toUpperCase()}
+                      {f.path.replace(BASE + '/', '').replace('/' + f.name, '')}{f.type === 'folder' ? ' · Dossier' : ` · ${getExt(f.name).toUpperCase()}`}
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                    <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13 }} onClick={() => downloadByPath(f.path)} title="Télécharger">⬇</button>
+                    {f.type === 'folder' ? (
+                      <button className="btn" style={{ height: 28, padding: '0 10px', fontSize: 11 }} onClick={() => {
+                        const segments = f.path.replace(BASE + '/', '').split('/')
+                        setSearchQuery(''); setSearchResults(null); setPathSegments(segments)
+                      }} title="Ouvrir le dossier">Ouvrir →</button>
+                    ) : (
+                      <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13 }} onClick={() => downloadByPath(f.path)} title="Télécharger">⬇</button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -363,20 +371,20 @@ export default function Library({ user }) {
 
           {/* Liste dossiers */}
           {folders.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px,1fr))', gap: 8, marginBottom: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
               {folders.map(f => (
-                <div key={f.name} className="card" style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 8, transition: 'border-color .15s' }}
+                <div key={f.name} className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, transition: 'border-color .15s' }}
                   onMouseEnter={e => e.currentTarget.style.borderColor = '#CC2200'}
                   onMouseLeave={e => e.currentTarget.style.borderColor = '#e5e7eb'}>
-                  <span style={{ fontSize: 22, cursor: 'pointer' }} onClick={() => goInto(f.name)}>📁</span>
+                  <span style={{ fontSize: 22, cursor: 'pointer', flexShrink: 0 }} onClick={() => goInto(f.name)}>📁</span>
                   <div style={{ flex: 1, overflow: 'hidden', cursor: 'pointer' }} onClick={() => goInto(f.name)}>
                     <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
                     <div style={{ fontSize: 10, color: '#9ca3af' }}>Ouvrir →</div>
                   </div>
-                  <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                     <button
                       className="btn"
-                      style={{ width: 26, height: 26, padding: 0, fontSize: 12 }}
+                      style={{ height: 28, padding: '0 8px', fontSize: 13 }}
                       title="Télécharger le dossier (ZIP)"
                       disabled={downloadingFolder === f.name}
                       onClick={e => { e.stopPropagation(); downloadFolderAsZip(f.name) }}
@@ -384,7 +392,7 @@ export default function Library({ user }) {
                     {canUpload && (
                       <button
                         className="btn"
-                        style={{ width: 26, height: 26, padding: 0, fontSize: 11, color: '#dc2626' }}
+                        style={{ height: 28, padding: '0 8px', fontSize: 13, color: '#dc2626' }}
                         title="Supprimer le dossier"
                         onClick={e => { e.stopPropagation(); if (window.confirm(`Supprimer le dossier "${f.name}" et tout son contenu ?`)) deleteFolder(f.name) }}
                       >✕</button>
