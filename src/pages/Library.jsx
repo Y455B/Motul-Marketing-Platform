@@ -39,6 +39,7 @@ export default function Library({ user }) {
   const [preview, setPreview] = useState(null)
   const [rejectTarget, setRejectTarget] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
   const fileInputRef = useRef()
   const { toast, showToast } = useToast()
   const admin = isAdmin(user)
@@ -56,7 +57,7 @@ export default function Library({ user }) {
       limit: 200,
       sortBy: { column: 'name', order: 'asc' }
     })
-    if (error) { console.error('list error:', error); return }
+    if (error) { showToast('Erreur de chargement', 'error'); return }
     const items = data || []
     // Dossiers = pas d'id (ou id null), Fichiers = ont un id
     setFolders(items.filter(f => !f.id && f.name !== '.emptyFolderPlaceholder'))
@@ -193,6 +194,15 @@ export default function Library({ user }) {
     if (url) { navigator.clipboard.writeText(url); showToast('Lien copié (valable 1h)') }
   }
 
+  const downloadFile = async (name) => {
+    const url = await getSignedUrl(name)
+    if (!url) return
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name.replace(/^\d+_/, '')
+    a.click()
+  }
+
   // Breadcrumb
   const Breadcrumb = () => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -211,26 +221,39 @@ export default function Library({ user }) {
     </div>
   )
 
+  // Filtrer dossiers et fichiers par recherche
+  const filteredFolders = searchQuery
+    ? folders.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : folders
+  const filteredDocs = searchQuery
+    ? docs.filter(f => f.name.replace(/^\d+_/, '').toLowerCase().includes(searchQuery.toLowerCase()))
+    : docs
+
   // Contenu du niveau courant (dossiers + fichiers)
   const FolderContent = ({ canUpload = false }) => (
     <div>
       <Breadcrumb />
-      {/* Boutons actions */}
-      {canUpload && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-          {pathSegments.length > 0 && (
-            <button className="btn" onClick={goUp}>← Retour</button>
-          )}
-          <button className="btn" onClick={() => setShowNewFolder(true)}>📁 Nouveau sous-dossier</button>
-          <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            {uploading ? 'Upload...' : '⬆ Ajouter fichiers'}
-          </button>
-          <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleUpload} />
-        </div>
-      )}
-      {!canUpload && pathSegments.length > 0 && (
-        <button className="btn" style={{ marginBottom: 12 }} onClick={goUp}>← Retour</button>
-      )}
+      {/* Barre de recherche */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        {pathSegments.length > 0 && (
+          <button className="btn" onClick={goUp}>← Retour</button>
+        )}
+        <input
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Rechercher un fichier ou dossier..."
+          style={{ flex: 1, minWidth: 180, maxWidth: 320 }}
+        />
+        {canUpload && (
+          <>
+            <button className="btn" onClick={() => setShowNewFolder(true)}>📁 Nouveau sous-dossier</button>
+            <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+              {uploading ? 'Upload...' : '⬆ Ajouter fichiers'}
+            </button>
+            <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleUpload} />
+          </>
+        )}
+      </div>
 
       {/* Création dossier inline */}
       {showNewFolder && (
@@ -249,9 +272,9 @@ export default function Library({ user }) {
       )}
 
       {/* Liste dossiers */}
-      {folders.length > 0 && (
+      {filteredFolders.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 8, marginBottom: 12 }}>
-          {folders.map(f => (
+          {filteredFolders.map(f => (
             <div key={f.name} className="card" style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 8, transition: 'border-color .15s', position: 'relative' }}
               onMouseEnter={e => e.currentTarget.style.borderColor = '#CC2200'}
               onMouseLeave={e => e.currentTarget.style.borderColor = '#e5e7eb'}>
@@ -274,14 +297,14 @@ export default function Library({ user }) {
       )}
 
       {/* Liste fichiers */}
-      {docs.length === 0 && folders.length === 0 && (
+      {filteredDocs.length === 0 && filteredFolders.length === 0 && (
         <div style={{ padding: 28, textAlign: 'center', fontSize: 12, color: '#9ca3af', background: '#f9fafb', borderRadius: 10, border: '0.5px dashed #e5e7eb' }}>
-          {canUpload ? 'Dossier vide · Ajoutez des fichiers ou créez un sous-dossier' : 'Aucun document disponible dans ce dossier.'}
+          {searchQuery ? 'Aucun résultat pour cette recherche.' : canUpload ? 'Dossier vide · Ajoutez des fichiers ou créez un sous-dossier' : 'Aucun document disponible dans ce dossier.'}
         </div>
       )}
-      {docs.length > 0 && (
+      {filteredDocs.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {docs.map(f => (
+          {filteredDocs.map(f => (
             <div key={f.id || f.name} className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: 20, flexShrink: 0 }}>{getIcon(f.name)}</span>
               <div style={{ flex: 1, overflow: 'hidden' }}>
@@ -290,6 +313,7 @@ export default function Library({ user }) {
               </div>
               <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                 <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13 }} onClick={() => openPreview(f)} title="Aperçu">👁</button>
+                <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13 }} onClick={() => downloadFile(f.name)} title="Télécharger">⬇</button>
                 <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13 }} onClick={() => copyLink(f.name)} title="Copier lien">🔗</button>
                 {canUpload && <button className="btn" style={{ height: 28, padding: '0 8px', fontSize: 13, color: '#dc2626' }} onClick={() => deleteDoc(f.name)} title="Supprimer">✕</button>}
               </div>
