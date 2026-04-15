@@ -145,6 +145,26 @@ export default function Sliders({ user }) {
     setDeleteTarget(null)
   }
 
+  // Déplacer un slider d'une position (direction: -1 = haut, +1 = bas)
+  const moveSlider = async (index, direction) => {
+    const newIndex = index + direction
+    if (newIndex < 0 || newIndex >= sliders.length) return
+    const current = sliders[index]
+    const neighbor = sliders[newIndex]
+    // Échange des sort_order en base
+    const { error: e1 } = await supabase.from('sliders').update({ sort_order: neighbor.sort_order }).eq('id', current.id)
+    const { error: e2 } = await supabase.from('sliders').update({ sort_order: current.sort_order }).eq('id', neighbor.id)
+    if (e1 || e2) { showToast((e1 || e2).message, 'error'); return }
+    // Mise à jour optimiste de l'ordre local
+    setSliders(prev => {
+      const next = [...prev]
+      const tmp = { ...next[index], sort_order: neighbor.sort_order }
+      next[index] = { ...next[newIndex], sort_order: current.sort_order }
+      next[newIndex] = tmp
+      return next
+    })
+  }
+
   return (
     <Layout user={user}>
       <div className="page-header">
@@ -231,7 +251,7 @@ export default function Sliders({ user }) {
         : sliders.length === 0
           ? <div className="empty-state"><div className="empty-state-icon">🖼️</div>Aucun slider. Créez votre premier slider pour qu'il apparaisse sur la homepage.</div>
           : <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {sliders.map(s => (
+              {sliders.map((s, i) => (
                 <div key={s.id} className="card" style={{ overflow: 'hidden' }}>
                   <div style={{ position: 'relative', height: 120, background: '#1a1a1a', overflow: 'hidden' }}>
                     {s.image_url
@@ -254,6 +274,22 @@ export default function Sliders({ user }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <button className={`toggle ${s.visible ? 'on' : ''}`} onClick={() => toggleVisible(s)} />
                       <span style={{ fontSize: 11, color: '#6b7280' }}>{s.visible ? 'Visible' : 'Masqué'}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 2 }}>
+                      <button
+                        className="btn"
+                        style={{ width: 28, height: 28, padding: 0, fontSize: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, opacity: i === 0 ? 0.4 : 1 }}
+                        title="Monter"
+                        disabled={i === 0}
+                        onClick={() => moveSlider(i, -1)}
+                      >↑</button>
+                      <button
+                        className="btn"
+                        style={{ width: 28, height: 28, padding: 0, fontSize: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, opacity: i === sliders.length - 1 ? 0.4 : 1 }}
+                        title="Descendre"
+                        disabled={i === sliders.length - 1}
+                        onClick={() => moveSlider(i, 1)}
+                      >↓</button>
                     </div>
                     <button className="btn" style={{ fontSize: 11, padding: '4px 12px' }} onClick={() => openEdit(s)}>Modifier</button>
                     <button className="btn" style={{ fontSize: 11, padding: '4px 12px', color: '#dc2626', borderColor: '#fecaca' }} onClick={() => setDeleteTarget(s)}>Supprimer</button>
