@@ -149,20 +149,19 @@ export default function Sliders({ user }) {
   const moveSlider = async (index, direction) => {
     const newIndex = index + direction
     if (newIndex < 0 || newIndex >= sliders.length) return
-    const current = sliders[index]
-    const neighbor = sliders[newIndex]
-    // Échange des sort_order en base
-    const { error: e1 } = await supabase.from('sliders').update({ sort_order: neighbor.sort_order }).eq('id', current.id)
-    const { error: e2 } = await supabase.from('sliders').update({ sort_order: current.sort_order }).eq('id', neighbor.id)
-    if (e1 || e2) { showToast((e1 || e2).message, 'error'); return }
-    // Mise à jour optimiste de l'ordre local
-    setSliders(prev => {
-      const next = [...prev]
-      const tmp = { ...next[index], sort_order: neighbor.sort_order }
-      next[index] = { ...next[newIndex], sort_order: current.sort_order }
-      next[newIndex] = tmp
-      return next
-    })
+    // Construire le nouvel ordre local
+    const reordered = [...sliders]
+    const [moved] = reordered.splice(index, 1)
+    reordered.splice(newIndex, 0, moved)
+    // Renormaliser TOUS les sort_order (0, 1, 2, ...) pour éviter toute collision
+    const updates = reordered.map((s, i) =>
+      supabase.from('sliders').update({ sort_order: i }).eq('id', s.id)
+    )
+    const results = await Promise.all(updates)
+    const firstError = results.find(r => r.error)
+    if (firstError) { showToast(firstError.error.message, 'error'); return }
+    // Recharge depuis la base pour garantir l'affichage correct
+    await load()
   }
 
   return (
