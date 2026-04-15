@@ -43,7 +43,7 @@ export default function Home({ user }) {
       {sliders.length > 0 ? (
         <div style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', marginBottom: 24, height: 220, background: '#1a1a1a' }}>
           {sliders.map((s, i) => (
-            <div key={s.id} style={{ position: 'absolute', inset: 0, opacity: i === activeSlider ? 1 : 0, transition: 'opacity .7s ease' }}>
+            <div key={s.id} style={{ position: 'absolute', inset: 0, opacity: i === activeSlider ? 1 : 0, transition: 'opacity .7s ease', pointerEvents: i === activeSlider ? 'auto' : 'none' }}>
               {s.image_url
                 ? <img src={s.image_url} alt={s.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                 : <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg, #CC2200 0%, #A01A00 100%)' }} />
